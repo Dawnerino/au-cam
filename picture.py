@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 import random
 import requests
@@ -13,6 +14,9 @@ import lgpio
 import serial
 
 # Configuration
+#load environment variables
+load_dotenv()
+
 # Camera Object
 picam2 = Picamera2()
 
@@ -36,7 +40,7 @@ lgpio.gpio_claim_alert(h, TRIGGER_PIN, lgpio.FALLING_EDGE | lgpio.SET_PULL_DOWN)
 ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
 AUDIO_DIR = "audio"
-URL = "http://172.22.157.125:6411/process"
+URL = os.getenv("URL")
 MAX_SIZE = 270  # Max pixels on the longest side
 MAX_AUDIO_FILES = 10  # Keep only the last 10 audio recordings
 
