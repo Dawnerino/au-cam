@@ -5,8 +5,6 @@ import requests
 from PIL import Image
 from datetime import datetime
 from picamera2 import Picamera2
-import socket
-import json
 import time
 import audio_control as mpv
 import threading
@@ -101,28 +99,34 @@ def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
 
 def send_request(image_path, url, output_directory):
     """Sends the image to the server and saves the response as a new audio file."""
-    mpv.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav",100)
+    mpv.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
+
     resized_image = os.path.join(output_directory, os.path.basename(image_path))
+    
     with open(image_path, "rb") as image_file:
         files = {"image": image_file}
         response = requests.post(url, files=files)
+        
         if response.status_code == 200:
             new_audio_file = os.path.join(output_directory, f"response_{random.randint(1000, 9999)}.wav")
             with open(new_audio_file, "wb") as f:
                 f.write(response.content)
                 f.flush()
-                os.fsync(f.fileno())
-                print(f"File is fully written. {new_audio_file}")
-            time.sleep(0.5)
-            
+                os.fsync(f.fileno())  # Ensures data is written to disk
+                print(f"✅ File is fully written: {new_audio_file}")
+
+            # Ensure file is fully saved before playback
+            wait_for_file_stability(new_audio_file)
+            # Then Play
             if not mpv.play_audio(new_audio_file):
                 print("🔄 Retrying audio playback...")
                 time.sleep(0.5)
-                mpv.play_audio(new_audio_file,80)
+                mpv.play_audio(new_audio_file, 80)
 
             manage_audio_files(output_directory)
+        
         else:
-            print(f"Failed to process image: {response.status_code}, {response.text}")
+            print(f"❌ Failed to process image: {response.status_code}, {response.text}")
 
 # GPIO monitoring in a separate thread
 def monitor_gpio():
@@ -138,6 +142,33 @@ def monitor_gpio():
     finally:
         lgpio.gpiochip_close(h)
         
+def wait_for_file_stability(file_path, timeout=5):
+    """Waits until the file exists and its size stabilizes."""
+    import os
+    import time
+
+    start_time = time.time()
+    last_size = -1
+
+    while time.time() - start_time < timeout:
+        if os.path.exists(file_path):
+            current_size = os.path.getsize(file_path)
+            print(f"📏 File size: {current_size} bytes")
+
+            # If the file size hasn't changed for 0.5s, assume it's done writing
+            if current_size > 0 and current_size == last_size:
+                print("✅ File size is stable. Proceeding with playback.")
+                return
+
+            last_size = current_size
+        else:
+            print("⚠️ Waiting for file to appear...")
+
+        time.sleep(0.5)  # Check every 500ms
+
+    print("⚠️ Warning: File size didn't stabilize within timeout. Proceeding anyway.")
+
+    
 # MAIN LOOP FUNCTION
 def main_loop():
     """Main loop waiting for user input or GPIO trigger."""
