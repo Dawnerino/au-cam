@@ -8,8 +8,8 @@ from picamera2 import Picamera2
 import time
 import audio_control as mpv
 import threading
-import lgpio
-import serial
+# Serial Handling python Script (Creates a last command global variable that will cancel certain long functions.)
+import serialHandle
 
 # Configuration
 #load environment variables
@@ -17,39 +17,32 @@ load_dotenv()
 
 # Camera Object
 picam2 = Picamera2()
-
-# Define a small 800x450 configuration for faster captures
-config = picam2.create_still_configuration(main={"size": (960, 540)})
+# Define a small 480x270 configuration for faster captures and processing
+config = picam2.create_still_configuration(main={"size": (480, 270)})
 picam2.configure(config)
-
 # Start camera at the beginning and keep it running
 picam2.start()
-time.sleep(0.5)  # Allow camera warm-up
-
-# GPIO and SERIAL
-ser = serial.Serial('/dev/ttyS0', 9600, timeout=1)
-ser.flush()
-GPIO_CHIP = 0
-TRIGGER_PIN = 17  # Use GPIO17 (physical pin 11)
-h = lgpio.gpiochip_open(GPIO_CHIP)
-lgpio.gpio_claim_input(h, TRIGGER_PIN)
-lgpio.gpio_claim_alert(h, TRIGGER_PIN, lgpio.FALLING_EDGE | lgpio.SET_PULL_DOWN)
+time.sleep(1)  # Allow camera warm-up
 
 ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
 AUDIO_DIR = "audio"
 URL = os.getenv("URL")
-MAX_SIZE = 270  # Max pixels on the longest side
 MAX_AUDIO_FILES = 10  # Keep only the last 10 audio recordings
 
 #Global Vars
 Volume = 100
+#thread interrupting event
+interrupt_event = threading.Event()
 
 # Ensure directories exist
 for directory in [ORIGINALS_DIR, RESIZED_DIR, AUDIO_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 def capture_image():
+    # Clear last command to prevent immediate cancellation
+    serialHandle.last_command = None
+
     """Capture a still image using picamera2 and save to file."""
     global picam2  # Use the initialized camera
 
@@ -64,25 +57,11 @@ def capture_image():
     Image.fromarray(frame).save(image_path)
     mpv.play_audio("tempclick.wav")
     print(f"Captured image: {image_path}")
+    # Send feedback to Arduino after successful capture
+    serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Arduino will start "loading..." vibration.
+
     return image_path
 
-""" OLD CAPTURE (SLOW)
-def capture_image():
-    #Captures an image using Picamera2 and saves it to the originals directory.
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    image_path = os.path.join(ORIGINALS_DIR, f"{timestamp}.jpg")
-    
-    os.system(f"libcamera-jpeg -o {image_path} --nopreview --immediate --quality 60 --width 320 --height 180")
-    mpv.play_audio("tempclick.wav")
-    print(f"Captured image: {image_path}")
-    return image_path
-"""
-
-def gpio_callback():
-    print("Button pressed! Capturing image...")
-    image_path = capture_image()
-    print(f"Selected image: {image_path}")
-    send_request(image_path, URL, AUDIO_DIR)
 
 def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
     """Ensures that only the last `max_files` audio recordings are kept, deleting the oldest ones."""
@@ -98,6 +77,9 @@ def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
         print(f"Deleted: {oldest_file}")
 
 def send_request(image_path, url, output_directory):
+    # Clear last command to prevent immediate cancellation
+    serialHandle.last_command = None
+
     """Sends the image to the server and saves the response as a new audio file."""
     mpv.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
 
@@ -113,98 +95,73 @@ def send_request(image_path, url, output_directory):
                 f.write(response.content)
                 f.flush()
                 os.fsync(f.fileno())  # Ensures data is written to disk
-                print(f"✅ File is fully written: {new_audio_file}")
+                print(f"File is fully written: {new_audio_file}")
 
-            # Ensure file is fully saved before playback
-            wait_for_file_stability(new_audio_file)
             # Then Play
             if not mpv.play_audio(new_audio_file):
-                print("🔄 Retrying audio playback...")
+                print("Retrying audio playback...")
                 time.sleep(0.5)
-                mpv.play_audio(new_audio_file, 80)
+                mpv.play_audio(new_audio_file, 100)
 
             manage_audio_files(output_directory)
         
         else:
-            print(f"❌ Failed to process image: {response.status_code}, {response.text}")
+            print(f"Failed to process image: {response.status_code}, {response.text}")
 
-# GPIO monitoring in a separate thread
-def monitor_gpio():
-    """Monitors GPIO pin for button press."""
-    print(f"🚀 Monitoring GPIO pin {TRIGGER_PIN} for button press...")
-    try:
-        while True:
-            if lgpio.gpio_read(h, TRIGGER_PIN) == 1:  # Button press pulls the pin LOW
-                gpio_callback()
-                time.sleep(0.5)  # Debounce delay
-    except KeyboardInterrupt:
-        print("🛑 GPIO monitoring stopped.")
-    finally:
-        lgpio.gpiochip_close(h)
-        
-def wait_for_file_stability(file_path, timeout=5):
-    """Waits until the file exists and its size stabilizes."""
-    import os
-    import time
 
-    start_time = time.time()
-    last_size = -1
-
-    while time.time() - start_time < timeout:
-        if os.path.exists(file_path):
-            current_size = os.path.getsize(file_path)
-            print(f"📏 File size: {current_size} bytes")
-
-            # If the file size hasn't changed for 0.5s, assume it's done writing
-            if current_size > 0 and current_size == last_size:
-                print("✅ File size is stable. Proceeding with playback.")
-                return
-
-            last_size = current_size
-        else:
-            print("⚠️ Waiting for file to appear...")
-
-        time.sleep(0.5)  # Check every 500ms
-
-    print("⚠️ Warning: File size didn't stabilize within timeout. Proceeding anyway.")
-
+# SERIAL SPECIFIC FUNCTIONS
+def take_picture():
+    # Clear the last command so capture_image() doesn’t immediately cancel
+    serialHandle.last_command = None  
     
+    print ("taking picture..!")
+
+    image_path = capture_image()
+    
+    # If interrupted, do NOT proceed with sending request
+    if serialHandle.last_command == "TAKE_PICTURE":
+        print("Another TAKE_PICTURE command received. Restarting capture.")
+        return
+    
+    send_request(image_path)
+
+def stop_process():
+    """Handles the STOP_PROCESS command."""
+    interrupt_event.set()
+    mpv.kill_audio()
+    print("Processes stopped.")
+
+
 # MAIN LOOP FUNCTION
 def main_loop():
-    """Main loop waiting for user input or GPIO trigger."""
-    
-    print(f"Listening for commands or GPIO trigger on pin {TRIGGER_PIN}...")
+    """Main loop for manual commands."""
+    print("Listening for commands...")
 
     try:
         while True:
             command = input("> ").strip().lower()
             if command == "capture":
                 print("Manual capture triggered!")
-                image_path = capture_image()
-                send_request(image_path, URL, AUDIO_DIR)
+                interrupt_event.clear()
+                take_picture()
+
             elif command == "stop":
-                mpv.kill_audio()
-                print("Audio stopped.")
+                stop_process()
+
             elif command == "exit":
                 print("Exiting...")
                 break
+
             else:
                 print("Unknown command. Use 'capture', 'stop', or 'exit'.")
+
     finally:
-        
-        print("GPIO cleaned up.")
-
-
-# Time to run the script
+        print("Cleaning up resources.")
+        serialHandle.stop_serial()
 
 if __name__ == "__main__":
+    # Start Serial Listener
+    serialHandle.start_serial_listener()
 
-    # Start GPIO monitoring in a separate thread
-    gpio_thread = threading.Thread(target=monitor_gpio, daemon=True)
-    gpio_thread.start()
-
-
+    # Run Main Loop
     main_loop()
-
-    # Clean up GPIO on exit
-    lgpio.gpiochip_close(h)
