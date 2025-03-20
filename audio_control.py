@@ -85,7 +85,7 @@ def loop_audio(file_path, volume=100):
     print(f"Looping {file_path} at {volume}% volume")
 
 def stop_audio():
-    """Stops any currently playing audio."""
+    """Stops any currently playing audio if it's active."""
     global current_thread, is_looping
 
     is_looping = False
@@ -93,7 +93,9 @@ def stop_audio():
         sd.stop()
         current_thread.join(timeout=1)
         current_thread = None
-    print("Audio stopped")
+    print("🛑 Audio stopped (if playing)")
+
+
 
 def kill_audio():
     """Alias to stop_audio."""

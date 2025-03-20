@@ -101,11 +101,13 @@ def send_request(image_path):
             # Check if interrupted after sending but before processing response
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected mid-request. Returning to idle.")
+                aplay.stop_audio()  # Stop keyboard sound safely
                 serialHandle.last_command = None
                 return
 
         except requests.RequestException as e:
             print(f"Request failed: {e}")
+            aplay.stop_audio()  # Stop keyboard sound safely
             return
 
         if response.status_code == 200:
@@ -120,6 +122,7 @@ def send_request(image_path):
 
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected before playing audio. Returning to idle.")
+                aplay.stop_audio()  # Stop keyboard sound safely
                 serialHandle.last_command = None
                 return
             # Stop previous audio before playing new one
