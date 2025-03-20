@@ -1,35 +1,36 @@
 import serial
 import threading
-#!import picture  # Import main script functions
 
 # Global variable to track last received command
-last_command = None  # Updated dynamically by serial thread
-command_lock = threading.Lock()  # Prevent multiple commands at once
+last_command = None  
+command_lock = threading.Lock()  
 
 # Initialize serial connection
 ser = serial.Serial('/dev/ttyS0', 19200, timeout=1)
 
+# Command handler dictionary
+command_handlers = {}
+
 def send_serial_command(command):
     """Sends a command to the Arduino via serial."""
-    ser.write((command + "\n").encode('utf-8'))  # Send command with newline
+    ser.write((command + "\n").encode('utf-8'))  
     print(f"ARDUINO: {command}")
 
 def handle_serial_command(command):
-    """Handles commands received from Arduino and updates the last command variable."""
+    """Handles commands received from Arduino using the registered command handlers."""
     global last_command
 
     with command_lock:
         print(f"RECEIVE: {command}")
 
-        # If TAKE_PICTURE is received while an existing process is running, cancel it.
-        if command == "TAKE_PICTURE":
-            if last_command == "TAKE_PICTURE":  
-                print("Another TAKE_PICTURE received - Interrupting current process!")
-            last_command = "TAKE_PICTURE"
-            #!picture.take_picture()  # Call function to take picture or cancel ongoing process (THIS BLOWS MY MIND)
+        if command in command_handlers:
+            last_command = command  
+            command_handlers[command]()  # Call the registered function
+        else:
+            print(f"⚠️ Unknown command: {command}")
 
 def serial_thread():
-    """Continuously read from the serial port and update last_command."""
+    """Continuously read from the serial port and execute corresponding commands."""
     global last_command
     print("🔌 Listening for serial commands...")
 
@@ -38,6 +39,11 @@ def serial_thread():
             command = ser.readline().decode('utf-8', errors='ignore').strip()
             if command:
                 handle_serial_command(command)
+
+def register_command(command_name, function):
+    """Registers a command and its corresponding function."""
+    command_handlers[command_name] = function
+    print(f"✅ Registered command: {command_name}")
 
 def start_serial_listener():
     """Starts the serial thread and returns the thread object."""
@@ -51,4 +57,4 @@ def stop_serial():
     if ser:
         print("🛑 Closing serial connection...")
         ser.close()
-        ser = None  # Prevent further access
+        ser = None  

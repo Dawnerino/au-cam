@@ -132,7 +132,7 @@ def send_request(image_path):
             print(f"Failed response: {response.status_code}, {response.text}")
 
 
-# SERIAL ASSIGNED SPECIFIC FUNCTIONS
+# SERIAL ASSIGNED SPECIFIC COMMANDS
 def take_picture():
     # Clear the last command so capture_image() doesn’t immediately cancel
     serialHandle.last_command = None  
@@ -185,6 +185,11 @@ def main_loop():
 
 if __name__ == "__main__":
     # Start Serial Listener
+    # Register multiple commands
+    serialHandle.register_command("TAKE_PICTURE", take_picture)
+    serialHandle.register_command("STOP_PROCESS", stop_process)
+    # serialHandle.register_command("INCREASE_VOLUME", increase_volume)
+    # serialHandle.register_command("DECREASE_VOLUME", decrease_volume)
     serialHandle.start_serial_listener()
 
     # Run Main Loop
