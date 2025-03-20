@@ -1,6 +1,6 @@
 import serial
 import threading
-import picture  # Import main script functions
+#!import picture  # Import main script functions
 
 # Global variable to track last received command
 last_command = None  # Updated dynamically by serial thread
@@ -26,7 +26,7 @@ def handle_serial_command(command):
             if last_command == "TAKE_PICTURE":  
                 print("Another TAKE_PICTURE received - Interrupting current process!")
             last_command = "TAKE_PICTURE"
-            picture.take_picture()  # Call function to take picture or cancel ongoing process (THIS BLOWS MY MIND)
+            #!picture.take_picture()  # Call function to take picture or cancel ongoing process (THIS BLOWS MY MIND)
 
 def serial_thread():
     """Continuously read from the serial port and update last_command."""
