@@ -91,7 +91,7 @@ def send_request(image_path):
     try:
         with open(image_path, "rb") as image_file:
             files = {"image": image_file}
-            response = requests.post(URL, files=files, timeout=10)  # Short timeout
+            response = requests.post(URL, files=files, timeout=30)  # Short timeout
 
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected mid-request. Cancelling request.")
