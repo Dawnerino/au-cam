@@ -6,7 +6,7 @@ from PIL import Image
 from datetime import datetime
 from picamera2 import Picamera2
 import time
-import audio_control as mpv
+import audio_control as aplay
 import threading
 
 # Serial Handling python Script (Creates a last command global variable that will cancel certain long functions.)
@@ -56,7 +56,7 @@ def capture_image():
 
     # Convert to PIL image and save
     Image.fromarray(frame).save(image_path)
-    mpv.play_audio("tempclick.wav")
+    aplay.play_audio("tempclick.wav")
     print(f"Captured image: {image_path}")
     # Send feedback to Arduino after successful capture
     serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Arduino will start "loading..." vibration.
@@ -84,7 +84,7 @@ def send_request(image_path):
         return
 
     print(f"Sending image: {image_path} to {URL}")
-    mpv.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
+    aplay.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
 
     # Check before sending
     if serialHandle.last_command == "TAKE_PICTURE":
@@ -123,10 +123,11 @@ def send_request(image_path):
                 serialHandle.last_command = None
                 return
 
-            if not mpv.play_audio(new_audio_file):
+            if not aplay.play_audio(new_audio_file):
                 print("Retrying audio playback...")
-                time.sleep(0.5)
-                mpv.play_audio(new_audio_file, 100)
+                time.sleep(1)
+                if not aplay.play_audio(new_audio_file, 100):
+                    print(f"❌ Second attempt failed. Is the audio file valid?")
 
         else:
             print(f"Failed response: {response.status_code}, {response.text}")
@@ -152,7 +153,7 @@ def take_picture():
 def stop_process():
     """Handles the STOP_PROCESS command."""
     interrupt_event.set()
-    mpv.kill_audio()
+    aplay.kill_audio()
     print("Processes stopped.")
 
 
