@@ -88,12 +88,17 @@ def stop_audio():
     """Stops any currently playing audio if it's active."""
     global current_thread, is_looping
 
-    is_looping = False
+    if not is_looping and not (current_thread and current_thread.is_alive()):
+        print("🛑 No audio is playing, skipping stop_audio()")
+        return  # Prevent stopping audio if nothing is playing
+
+    is_looping = False  # Stop looping
     if current_thread and current_thread.is_alive():
         sd.stop()
         current_thread.join(timeout=1)
         current_thread = None
-    print("🛑 Audio stopped (if playing)")
+    print("🛑 Audio fully stopped")
+
 
 
 

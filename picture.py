@@ -126,7 +126,7 @@ def send_request(image_path):
                 serialHandle.last_command = None
                 return
             # Stop previous audio before playing new one
-            os.system("pkill aplay")
+            aplay.stop_audio()
             time.sleep(0.2)  # Ensure audio stops before playing new file
 
             if not aplay.play_audio(new_audio_file):
