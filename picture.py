@@ -158,38 +158,32 @@ def stop_process():
 
 # MAIN LOOP FUNCTION
 def main_loop():
-    """Main loop for manual commands."""
-    print("Listening for commands...")
+    """Main loop that continuously checks `last_command`."""
+    print("🔄 Running command loop...")
 
-    try:
-        while True:
-            command = input("> ").strip().lower()
-            if command == "capture":
-                print("Manual capture triggered!")
-                interrupt_event.clear()
-                take_picture()
+    while True:
+        # Check last command and take action
+        if serialHandle.last_command == "TAKE_PICTURE":
+            serialHandle.last_command = None  # Reset command
+            take_picture()
 
-            elif command == "stop":
-                stop_process()
+        elif serialHandle.last_command == "STOP_PROCESS":
+            serialHandle.last_command = None  # Reset command
+            stop_process()
 
-            elif command == "exit":
-                print("Exiting...")
-                break
+        elif serialHandle.last_command == "INCREASE_VOLUME":
+            serialHandle.last_command = None  # Reset command
+            print("🔊 Increasing volume...")  # (Replace with actual function)
 
-            else:
-                print("Unknown command. Use 'capture', 'stop', or 'exit'.")
+        elif serialHandle.last_command == "DECREASE_VOLUME":
+            serialHandle.last_command = None  # Reset command
+            print("🔉 Decreasing volume...")  # (Replace with actual function)
 
-    finally:
-        print("Cleaning up resources.")
-        serialHandle.stop_serial()
+        time.sleep(0.1)  # Prevent CPU overuse
 
 if __name__ == "__main__":
     # Start Serial Listener
     # Register multiple commands
-    serialHandle.register_command("TAKE_PICTURE", take_picture)
-    serialHandle.register_command("STOP_PROCESS", stop_process)
-    # serialHandle.register_command("INCREASE_VOLUME", increase_volume)
-    # serialHandle.register_command("DECREASE_VOLUME", decrease_volume)
     serialHandle.start_serial_listener()
 
     # Run Main Loop
