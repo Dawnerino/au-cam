@@ -8,6 +8,7 @@ from picamera2 import Picamera2
 import time
 import audio_control as mpv
 import threading
+import atexit
 
 # Serial Handling python Script (Creates a last command global variable that will cancel certain long functions.)
 import serialHandle
@@ -23,7 +24,7 @@ config = picam2.create_still_configuration(main={"size": (480, 270)})
 picam2.configure(config)
 # Start camera at the beginning and keep it running
 picam2.start()
-time.sleep(1)  # Allow camera warm-up
+time.sleep(0.25)  # Allow camera warm-up
 
 ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
@@ -89,6 +90,7 @@ def send_request(image_path):
     # Check before sending
     if serialHandle.last_command == "TAKE_PICTURE":
         print("Interrupt detected before sending request. Returning to idle.")
+        serialHandle.last_command = None
         return  
 
     with open(image_path, "rb") as image_file:
@@ -100,6 +102,7 @@ def send_request(image_path):
             # Check if interrupted after sending but before processing response
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected mid-request. Returning to idle.")
+                serialHandle.last_command = None
                 return
 
         except requests.RequestException as e:
@@ -118,6 +121,7 @@ def send_request(image_path):
 
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected before playing audio. Returning to idle.")
+                serialHandle.last_command = None
                 return
 
             if not mpv.play_audio(new_audio_file):
@@ -141,6 +145,7 @@ def take_picture():
     # If interrupted, do NOT proceed with sending request
     if serialHandle.last_command == "TAKE_PICTURE":
         print("Another TAKE_PICTURE command received. Restarting capture.")
+        serialHandle.last_command = None
         return
     
     send_request(image_path)
@@ -178,6 +183,17 @@ def main_loop():
     finally:
         print("Cleaning up resources.")
         serialHandle.stop_serial()
+
+def cleanup():
+    """Ensure the camera is released properly before exit."""
+    global picam2
+    if picam2:
+        print("🛑 Releasing camera resources...")
+        picam2.stop()  # Stop camera before exiting
+        picam2.close() # Close camera
+
+# Register cleanup function to run on exit
+atexit.register(cleanup)
 
 if __name__ == "__main__":
     # Start Serial Listener
