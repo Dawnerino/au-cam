@@ -41,26 +41,19 @@ for directory in [ORIGINALS_DIR, RESIZED_DIR, AUDIO_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 def capture_image():
-    # Clear last command to prevent immediate cancellation
-    aplay.stop_audio()
+    # Instead of calling stop_audio() multiple times, do it once here:
     serialHandle.last_command = None
 
-    """Capture a still image using picamera2 and save to file."""
-    global picam2  # Use the initialized camera
-
-    # Capture image directly into numpy array (very fast)
+    global picam2
     frame = picam2.capture_array()
 
-    # Save to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     image_path = f"/home/b-cam/Scripts/blindCam/originals/{timestamp}.jpg"
 
-    # Convert to PIL image and save
     Image.fromarray(frame).save(image_path)
-    aplay.play_audio("tempclick.wav")
+    aplay.play_audio("tempclick.wav")   # This is safe under the global lock
     print(f"Captured image: {image_path}")
-    # Send feedback to Arduino after successful capture
-    serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Arduino will start "loading..." vibration.
+    serialHandle.send_serial_command("FEEDBACK_VIBRATE")
 
     return image_path
 
@@ -79,35 +72,33 @@ def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
         print(f"Deleted: {oldest_file}")
 
 def send_request(image_path):
-    """Sends the image to the server but can be interrupted."""
     if not image_path:
         print("No image captured, skipping request.")
         return
 
     print(f"Sending image: {image_path} to {URL}")
+    # Loop keyboard under the global lock:
     aplay.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
 
-    # **Ensure we can interrupt requests**
     try:
         with open(image_path, "rb") as image_file:
             files = {"image": image_file}
-            response = requests.post(URL, files=files, timeout=30)  # Short timeout
+            response = requests.post(URL, files=files, timeout=30)
 
             if serialHandle.last_command == "TAKE_PICTURE":
                 print("Interrupt detected mid-request. Cancelling request.")
-                response.close()  # Kill the request
-                aplay.stop_audio()
+                response.close()
+                aplay.stop_audio()  # Stop keyboard
                 serialHandle.last_command = None
                 return
 
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         print(f"Request failed: {e}")
         aplay.stop_audio()
         return
 
     if response.status_code == 200:
         new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
-
         with open(new_audio_file, "wb") as f:
             f.write(response.content)
             f.flush()
@@ -121,10 +112,8 @@ def send_request(image_path):
             serialHandle.last_command = None
             return
 
-        # Stop previous audio before playing new one
-        aplay.stop_audio()
-        time.sleep(0.2)  # Ensure audio stops before playing new file
-
+        aplay.stop_audio()    # Stop old keyboard loop
+        time.sleep(0.2)       # Let the lock fully settle
         if not aplay.play_audio(new_audio_file):
             print("Retrying audio playback...")
             time.sleep(1)
@@ -132,7 +121,6 @@ def send_request(image_path):
                 print(f"❌ Second attempt failed. Is the audio file valid?")
     else:
         print(f"Failed response: {response.status_code}, {response.text}")
-
 
 # SERIAL ASSIGNED SPECIFIC COMMANDS
 def take_picture():

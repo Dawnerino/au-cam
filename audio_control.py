@@ -5,6 +5,9 @@ import threading
 import time
 import os
 
+# Global lock to prevent overlapping audio operations
+audio_lock = threading.Lock()
+
 # Global control
 current_thread = None
 current_audio = None
@@ -18,61 +21,62 @@ def load_wav(file_path):
         channels = wf.getnchannels()
         sample_rate = wf.getframerate()
 
-    # Reshape if stereo
     if channels == 2:
         audio_data = audio_data.reshape(-1, 2)
 
     return audio_data, sample_rate
 
+def _play_audio_impl(file_path, volume=100):
+    """Internal function to actually play the audio once."""
+    global current_thread, is_looping, current_audio
+
+    # Load & prepare audio data
+    audio_data, sample_rate = load_wav(file_path)
+    audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
+
+    def playback():
+        sd.stop()        # Ensure no old playback is running
+        time.sleep(0.1)  # Tiny delay so device can settle
+        sd.play(audio_data, samplerate=sample_rate)
+        sd.wait()        # Block until playback finishes
+
+    current_audio = audio_data
+    is_looping = False
+
+    current_thread = threading.Thread(target=playback, daemon=True)
+    current_thread.start()
+
+    time.sleep(0.1)  # Ensure thread truly starts
+    print(f"✅ Playing {file_path} at {volume}% volume")
+    return True
+
 def play_audio(file_path, volume=100):
-    """Plays a WAV file once with error handling and volume control."""
+    """Plays a WAV file once with error handling and volume control, safely."""
+    with audio_lock:
+        # Stop old audio first
+        _stop_audio_impl()  
+
+        if not os.path.exists(file_path):
+            print(f"❌ ERROR: Audio file not found: {file_path}")
+            return False
+
+        try:
+            return _play_audio_impl(file_path, volume)
+        except Exception as e:
+            print(f"❌ ERROR: Failed to play {file_path}: {e}")
+            return False
+
+def _loop_audio_impl(file_path, volume=100):
+    """Internal function to actually loop the audio."""
     global current_thread, is_looping, current_audio
-
-    stop_audio()  # Stop any previous playback
-
-    if not os.path.exists(file_path):
-        print(f"❌ ERROR: Audio file not found: {file_path}")
-        return False
-
-    try:
-        audio_data, sample_rate = load_wav(file_path)
-
-        # Apply volume (scale samples but prevent clipping)
-        audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
-
-        def playback():
-            sd.stop()  # Ensure no old playback is running
-            time.sleep(0.1)  # Small delay to let stop take effect
-            sd.play(audio_data, samplerate=sample_rate)
-            sd.wait()
-
-        current_audio = audio_data
-        is_looping = False
-
-        current_thread = threading.Thread(target=playback, daemon=True)
-        current_thread.start()
-
-        time.sleep(0.1)  # Ensure thread starts before returning
-        print(f"✅ Playing {file_path} at {volume}% volume")
-        return True
-
-    except Exception as e:
-        print(f"❌ ERROR: Failed to play {file_path}: {e}")
-        return False
-
-def loop_audio(file_path, volume=100):
-    """Loops a WAV file until stopped."""
-    global current_thread, is_looping, current_audio
-
-    stop_audio()
 
     audio_data, sample_rate = load_wav(file_path)
-
-    # Apply volume (scale samples)
-    audio_data = (audio_data * (volume / 100)).astype(np.int16)
+    audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
 
     def playback():
         while is_looping:
+            sd.stop()
+            time.sleep(0.1)
             sd.play(audio_data, samplerate=sample_rate)
             sd.wait()
 
@@ -82,28 +86,44 @@ def loop_audio(file_path, volume=100):
     current_thread = threading.Thread(target=playback, daemon=True)
     current_thread.start()
 
-    print(f"Looping {file_path} at {volume}% volume")
+    print(f"🔄 Looping {file_path} at {volume}% volume")
 
-def stop_audio():
-    """Stops any currently playing audio if it's active."""
+def loop_audio(file_path, volume=100):
+    """Loops a WAV file until stopped, ensuring safe concurrency."""
+    with audio_lock:
+        _stop_audio_impl()  # Stop any previous playback
+
+        if not os.path.exists(file_path):
+            print(f"❌ ERROR: Audio file not found: {file_path}")
+            return False
+
+        try:
+            _loop_audio_impl(file_path, volume)
+            return True
+        except Exception as e:
+            print(f"❌ ERROR: Failed to loop {file_path}: {e}")
+            return False
+
+def _stop_audio_impl():
+    """Actual logic to stop audio without the global lock."""
     global current_thread, is_looping
 
     if not is_looping and not (current_thread and current_thread.is_alive()):
         print("🛑 No audio is playing, skipping stop_audio()")
-        return  # Prevent stopping audio if nothing is playing
+        return
 
-    is_looping = False  # Stop looping
+    is_looping = False
     if current_thread and current_thread.is_alive():
         print("🛑 Stopping current audio thread safely...")
         sd.stop()
-        current_thread.join(timeout=1)  # Ensure thread is fully cleaned up
-        current_thread = None  # Fully release the thread object
-
+        current_thread.join(timeout=1)
+        current_thread = None
     print("🛑 Audio fully stopped and memory cleaned up")
 
-
-
-
+def stop_audio():
+    """Stops any currently playing audio if it's active, safely with lock."""
+    with audio_lock:
+        _stop_audio_impl()
 
 def kill_audio():
     """Alias to stop_audio."""
@@ -112,17 +132,15 @@ def kill_audio():
 def is_playing():
     """Checks if audio is currently playing."""
     global current_thread
-
-    if current_thread and current_thread.is_alive():
-        return True
-    return False
+    with audio_lock:
+        if current_thread and current_thread.is_alive():
+            return True
+        return False
 
 def unpause_audio():
-    """There is no pause in sounddevice; this is a no-op to match your previous interface."""
+    """No-op to match prior interface."""
     pass
 
-
-# Example usage
 if __name__ == "__main__":
     test_file = "keyboard.wav"
 
@@ -140,5 +158,4 @@ if __name__ == "__main__":
 
     print("Stopping loop...")
     stop_audio()
-
     print("All done.")
