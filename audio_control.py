@@ -25,29 +25,40 @@ def load_wav(file_path):
     return audio_data, sample_rate
 
 def play_audio(file_path, volume=100):
-    """Plays a WAV file once."""
+    """Plays a WAV file once with error handling and volume control."""
     global current_thread, is_looping, current_audio
 
     stop_audio()  # Stop any previous playback
 
-    audio_data, sample_rate = load_wav(file_path)
+    if not os.path.exists(file_path):
+        print(f"❌ ERROR: Audio file not found: {file_path}")
+        return False
 
-    # Apply volume (scale samples)
-    audio_data = (audio_data * (volume / 100)).astype(np.int16)
+    try:
+        audio_data, sample_rate = load_wav(file_path)
 
-    def playback():
-        sd.play(audio_data, samplerate=sample_rate)
-        sd.wait()
+        # Apply volume (scale samples but prevent clipping)
+        audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
 
-    current_audio = audio_data
-    is_looping = False
+        def playback():
+            sd.stop()  # Ensure no old playback is running
+            time.sleep(0.1)  # Small delay to let stop take effect
+            sd.play(audio_data, samplerate=sample_rate)
+            sd.wait()
 
-    current_thread = threading.Thread(target=playback, daemon=True)
-    current_thread.start()
+        current_audio = audio_data
+        is_looping = False
 
-    time.sleep(0.1)  # Let playback actually start
-    print(f"✅ Playing {file_path} at {volume}% volume")
-    return True
+        current_thread = threading.Thread(target=playback, daemon=True)
+        current_thread.start()
+
+        time.sleep(0.1)  # Ensure thread starts before returning
+        print(f"✅ Playing {file_path} at {volume}% volume")
+        return True
+
+    except Exception as e:
+        print(f"❌ ERROR: Failed to play {file_path}: {e}")
+        return False
 
 def loop_audio(file_path, volume=100):
     """Loops a WAV file until stopped."""
@@ -71,7 +82,7 @@ def loop_audio(file_path, volume=100):
     current_thread = threading.Thread(target=playback, daemon=True)
     current_thread.start()
 
-    print(f"🔄 Looping {file_path} at {volume}% volume")
+    print(f"Looping {file_path} at {volume}% volume")
 
 def stop_audio():
     """Stops any currently playing audio."""
@@ -82,7 +93,7 @@ def stop_audio():
         sd.stop()
         current_thread.join(timeout=1)
         current_thread = None
-    print("🛑 Audio stopped")
+    print("Audio stopped")
 
 def kill_audio():
     """Alias to stop_audio."""
