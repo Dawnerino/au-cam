@@ -116,7 +116,7 @@ def _stop_audio_impl():
     if current_thread and current_thread.is_alive():
         print("🛑 Stopping current audio thread safely...")
         sd.stop()
-        current_thread.join(timeout=1)
+        current_thread.join(timeout=5)
         current_thread = None
     print("🛑 Audio fully stopped and memory cleaned up")
 
