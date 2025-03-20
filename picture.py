@@ -122,6 +122,9 @@ def send_request(image_path):
                 print("Interrupt detected before playing audio. Returning to idle.")
                 serialHandle.last_command = None
                 return
+            # Stop previous audio before playing new one
+            os.system("pkill aplay")
+            time.sleep(0.2)  # Ensure audio stops before playing new file
 
             if not aplay.play_audio(new_audio_file):
                 print("Retrying audio playback...")
