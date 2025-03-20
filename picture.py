@@ -96,7 +96,7 @@ def send_request(image_path):
         files = {"image": image_file}
 
         try:
-            response = requests.post(URL, files=files, timeout=10)
+            response = requests.post(URL, files=files, timeout=60)
 
             # Check if interrupted after sending but before processing response
             if serialHandle.last_command == "TAKE_PICTURE":
