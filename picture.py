@@ -42,6 +42,7 @@ for directory in [ORIGINALS_DIR, RESIZED_DIR, AUDIO_DIR]:
 
 def capture_image():
     # Clear last command to prevent immediate cancellation
+    aplay.stop_audio()
     serialHandle.last_command = None
 
     """Capture a still image using picamera2 and save to file."""
