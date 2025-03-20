@@ -8,6 +8,7 @@ from picamera2 import Picamera2
 import time
 import audio_control as mpv
 import threading
+
 # Serial Handling python Script (Creates a last command global variable that will cancel certain long functions.)
 import serialHandle
 
@@ -76,40 +77,59 @@ def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
         os.remove(oldest_file)
         print(f"Deleted: {oldest_file}")
 
-def send_request(image_path, url, output_directory):
-    # Clear last command to prevent immediate cancellation
-    serialHandle.last_command = None
+def send_request(image_path):
+    """Sends the image to the server but can be interrupted."""
+    if not image_path:
+        print("No image captured, skipping request.")
+        return
 
-    """Sends the image to the server and saves the response as a new audio file."""
+    print(f"Sending image: {image_path} to {URL}")
     mpv.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
 
-    resized_image = os.path.join(output_directory, os.path.basename(image_path))
-    
+    # Check before sending
+    if serialHandle.last_command == "TAKE_PICTURE":
+        print("Interrupt detected before sending request. Returning to idle.")
+        return  
+
     with open(image_path, "rb") as image_file:
         files = {"image": image_file}
-        response = requests.post(url, files=files)
-        
+
+        try:
+            response = requests.post(URL, files=files, timeout=10)
+
+            # Check if interrupted after sending but before processing response
+            if serialHandle.last_command == "TAKE_PICTURE":
+                print("Interrupt detected mid-request. Returning to idle.")
+                return
+
+        except requests.RequestException as e:
+            print(f"Request failed: {e}")
+            return
+
         if response.status_code == 200:
-            new_audio_file = os.path.join(output_directory, f"response_{random.randint(1000, 9999)}.wav")
+            new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
+
             with open(new_audio_file, "wb") as f:
                 f.write(response.content)
                 f.flush()
-                os.fsync(f.fileno())  # Ensures data is written to disk
-                print(f"File is fully written: {new_audio_file}")
+                os.fsync(f.fileno())
 
-            # Then Play
+            print(f"Audio file saved: {new_audio_file}")
+
+            if serialHandle.last_command == "TAKE_PICTURE":
+                print("Interrupt detected before playing audio. Returning to idle.")
+                return
+
             if not mpv.play_audio(new_audio_file):
                 print("Retrying audio playback...")
                 time.sleep(0.5)
                 mpv.play_audio(new_audio_file, 100)
 
-            manage_audio_files(output_directory)
-        
         else:
-            print(f"Failed to process image: {response.status_code}, {response.text}")
+            print(f"Failed response: {response.status_code}, {response.text}")
 
 
-# SERIAL SPECIFIC FUNCTIONS
+# SERIAL ASSIGNED SPECIFIC FUNCTIONS
 def take_picture():
     # Clear the last command so capture_image() doesn’t immediately cancel
     serialHandle.last_command = None  

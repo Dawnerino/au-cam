@@ -1,8 +1,10 @@
 import serial
 import threading
+import picture  # Import main script functions
 
 # Global variable to track last received command
-last_command = None  # Will be updated dynamically by serial thread
+last_command = None  # Updated dynamically by serial thread
+command_lock = threading.Lock()  # Prevent multiple commands at once
 
 # Initialize serial connection
 ser = serial.Serial('/dev/ttyS0', 19200, timeout=1)
@@ -10,14 +12,21 @@ ser = serial.Serial('/dev/ttyS0', 19200, timeout=1)
 def send_serial_command(command):
     """Sends a command to the Arduino via serial."""
     ser.write((command + "\n").encode('utf-8'))  # Send command with newline
-    print(f"📡 Sent command to Arduino: {command}")
+    print(f"ARDUINO: {command}")
 
 def handle_serial_command(command):
-    """Handles commands received via serial and updates the last command variable."""
+    """Handles commands received from Arduino and updates the last command variable."""
     global last_command
 
-    print(f"📡 Received serial command: {command}")
-    last_command = command  # Update the last command so the main script can check it
+    with command_lock:
+        print(f"RECEIVE: {command}")
+
+        # If TAKE_PICTURE is received while an existing process is running, cancel it.
+        if command == "TAKE_PICTURE":
+            if last_command == "TAKE_PICTURE":  
+                print("Another TAKE_PICTURE received - Interrupting current process!")
+            last_command = "TAKE_PICTURE"
+            picture.take_picture()  # Call function to take picture or cancel ongoing process (THIS BLOWS MY MIND)
 
 def serial_thread():
     """Continuously read from the serial port and update last_command."""
@@ -37,5 +46,9 @@ def start_serial_listener():
     return serial_thread_instance
 
 def stop_serial():
-    """Stops the serial connection."""
-    ser.close()
+    """Stops the serial connection safely."""
+    global ser
+    if ser:
+        print("🛑 Closing serial connection...")
+        ser.close()
+        ser = None  # Prevent further access
