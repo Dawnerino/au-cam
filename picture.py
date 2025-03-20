@@ -8,10 +8,10 @@ from picamera2 import Picamera2
 import time
 import audio_control as mpv
 import threading
-import atexit
 
 # Serial Handling python Script (Creates a last command global variable that will cancel certain long functions.)
 import serialHandle
+
 
 # Configuration
 #load environment variables
@@ -24,7 +24,6 @@ config = picam2.create_still_configuration(main={"size": (480, 270)})
 picam2.configure(config)
 # Start camera at the beginning and keep it running
 picam2.start()
-time.sleep(0.25)  # Allow camera warm-up
 
 ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
@@ -183,17 +182,6 @@ def main_loop():
     finally:
         print("Cleaning up resources.")
         serialHandle.stop_serial()
-
-def cleanup():
-    """Ensure the camera is released properly before exit."""
-    global picam2
-    if picam2:
-        print("🛑 Releasing camera resources...")
-        picam2.stop()  # Stop camera before exiting
-        picam2.close() # Close camera
-
-# Register cleanup function to run on exit
-atexit.register(cleanup)
 
 if __name__ == "__main__":
     # Start Serial Listener
