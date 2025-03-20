@@ -87,57 +87,51 @@ def send_request(image_path):
     print(f"Sending image: {image_path} to {URL}")
     aplay.loop_audio("/home/b-cam/Scripts/blindCam/keyboard.wav", 100)
 
-    # Check before sending
-    if serialHandle.last_command == "TAKE_PICTURE":
-        print("Interrupt detected before sending request. Returning to idle.")
-        serialHandle.last_command = None
-        return  
+    # **Ensure we can interrupt requests**
+    try:
+        with open(image_path, "rb") as image_file:
+            files = {"image": image_file}
+            response = requests.post(URL, files=files, timeout=10)  # Short timeout
 
-    with open(image_path, "rb") as image_file:
-        files = {"image": image_file}
-
-        try:
-            response = requests.post(URL, files=files, timeout=60)
-
-            # Check if interrupted after sending but before processing response
             if serialHandle.last_command == "TAKE_PICTURE":
-                print("Interrupt detected mid-request. Returning to idle.")
-                aplay.stop_audio()  # Stop keyboard sound safely
+                print("Interrupt detected mid-request. Cancelling request.")
+                response.close()  # Kill the request
+                aplay.stop_audio()
                 serialHandle.last_command = None
                 return
 
-        except requests.RequestException as e:
-            print(f"Request failed: {e}")
-            aplay.stop_audio()  # Stop keyboard sound safely
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        aplay.stop_audio()
+        return
+
+    if response.status_code == 200:
+        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
+
+        with open(new_audio_file, "wb") as f:
+            f.write(response.content)
+            f.flush()
+            os.fsync(f.fileno())
+
+        print(f"Audio file saved: {new_audio_file}")
+
+        if serialHandle.last_command == "TAKE_PICTURE":
+            print("Interrupt detected before playing audio. Skipping.")
+            aplay.stop_audio()
+            serialHandle.last_command = None
             return
 
-        if response.status_code == 200:
-            new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
+        # Stop previous audio before playing new one
+        aplay.stop_audio()
+        time.sleep(0.2)  # Ensure audio stops before playing new file
 
-            with open(new_audio_file, "wb") as f:
-                f.write(response.content)
-                f.flush()
-                os.fsync(f.fileno())
-
-            print(f"Audio file saved: {new_audio_file}")
-
-            if serialHandle.last_command == "TAKE_PICTURE":
-                print("Interrupt detected before playing audio. Returning to idle.")
-                aplay.stop_audio()  # Stop keyboard sound safely
-                serialHandle.last_command = None
-                return
-            # Stop previous audio before playing new one
-            aplay.stop_audio()
-            time.sleep(0.2)  # Ensure audio stops before playing new file
-
-            if not aplay.play_audio(new_audio_file):
-                print("Retrying audio playback...")
-                time.sleep(1)
-                if not aplay.play_audio(new_audio_file, 100):
-                    print(f"❌ Second attempt failed. Is the audio file valid?")
-
-        else:
-            print(f"Failed response: {response.status_code}, {response.text}")
+        if not aplay.play_audio(new_audio_file):
+            print("Retrying audio playback...")
+            time.sleep(1)
+            if not aplay.play_audio(new_audio_file, 100):
+                print(f"❌ Second attempt failed. Is the audio file valid?")
+    else:
+        print(f"Failed response: {response.status_code}, {response.text}")
 
 
 # SERIAL ASSIGNED SPECIFIC COMMANDS

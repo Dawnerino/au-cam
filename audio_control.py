@@ -94,10 +94,13 @@ def stop_audio():
 
     is_looping = False  # Stop looping
     if current_thread and current_thread.is_alive():
+        print("🛑 Stopping current audio thread safely...")
         sd.stop()
-        current_thread.join(timeout=1)
-        current_thread = None
-    print("🛑 Audio fully stopped")
+        current_thread.join(timeout=1)  # Ensure thread is fully cleaned up
+        current_thread = None  # Fully release the thread object
+
+    print("🛑 Audio fully stopped and memory cleaned up")
+
 
 
 
