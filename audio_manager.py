@@ -62,7 +62,9 @@ class AudioManager:
 
     def _handle_play(self, file_path, volume):
         """Plays a file once, in a chunked non-blocking way."""
+        print(f"DEBUG: Entering _handle_play({file_path}, volume={volume})")
         self._handle_stop()  # Stop anything that's playing
+        
 
         if not os.path.exists(file_path):
             print(f"Audio file not found: {file_path}")
@@ -80,8 +82,8 @@ class AudioManager:
             channels=(audio_data.shape[1] if audio_data.ndim > 1 else 1),
             dtype='int16'
         )
+        print("DEBUG: Successfully opened stream, starting chunk writes.")
         self.active_stream.start()
-
         # Write in small chunks
         chunk_size = 2048
         idx = 0
