@@ -6,6 +6,7 @@ import numpy as np
 import wave
 import time
 import os
+import subprocess
 
 # Define command types
 AUDIO_CMD_PLAY = "play"
