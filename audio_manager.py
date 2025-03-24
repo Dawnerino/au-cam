@@ -196,11 +196,28 @@ class AudioManager:
     def _load_wav(self, file_path):
         """Loads a WAV file into NumPy array."""
         try:
+            # Check file size before opening
+            file_size = os.path.getsize(file_path)
+            print(f"DEBUG: File size of {file_path}: {file_size} bytes")
+            
+            if file_size > 10000000:  # If file larger than 10MB
+                print(f"WARNING: Audio file {file_path} is very large ({file_size} bytes). This might cause issues.")
+                
             with wave.open(file_path, 'rb') as wf:
-                frames = wf.readframes(wf.getnframes())
-                audio_data = np.frombuffer(frames, dtype=np.int16)
+                # Get basic info first
                 channels = wf.getnchannels()
                 sample_rate = wf.getframerate()
+                n_frames = wf.getnframes()
+                print(f"DEBUG: WAV header info - frames: {n_frames}, rate: {sample_rate}Hz, channels: {channels}")
+                
+                # Read data in chunks if file is large
+                if n_frames > 1000000:  # If over ~22 seconds at 44.1kHz
+                    print(f"WARNING: Large audio file, reading first 10 seconds only")
+                    frames = wf.readframes(441000)  # ~10 seconds of audio at 44.1kHz
+                else:
+                    frames = wf.readframes(n_frames)
+                    
+                audio_data = np.frombuffer(frames, dtype=np.int16)
 
             # Debug information about the loaded audio
             print(f"DEBUG: Loaded audio file {file_path}")

@@ -110,9 +110,19 @@ def send_request(image_path):
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
             return
             
+        # Check if response is actually a WAV file (should start with RIFF header)
+        if not response.content.startswith(b'RIFF'):
+            print(f"WARNING: Response is not a valid WAV file (no RIFF header)")
+            print(f"First 20 bytes of response: {response.content[:20]}")
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            return
+            
         # Save response
         random_id = random.randint(1000, 9999)
         new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}.wav")
+        
+        # Make sure audio directory exists
+        os.makedirs(AUDIO_DIR, exist_ok=True)
         
         try:
             with open(new_audio_file, "wb") as af:
@@ -121,6 +131,16 @@ def send_request(image_path):
                 os.fsync(af.fileno())
             
             print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
+            
+            # Check if audio file was correctly saved and is a valid WAV
+            if os.path.exists(new_audio_file):
+                with open(new_audio_file, "rb") as test_f:
+                    header = test_f.read(12)  # Read RIFF header
+                    if not header.startswith(b'RIFF'):
+                        print(f"WARNING: Saved file does not have a valid WAV header")
+                        audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)
+                        return
+            
         except Exception as e:
             print(f"ERROR saving audio file: {e}")
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
@@ -140,14 +160,20 @@ def send_request(image_path):
         
         # Sleep before playing to ensure previous audio is fully stopped
         time.sleep(0.5)
-            
-        # Play response audio - use a simpler test audio first to check
-        print(f"Testing audio system with tempclick.wav")
-        audio_manager.send_command(AUDIO_CMD_PLAY, file_path="tempclick.wav", volume=100)
-        time.sleep(1.0)  # Wait for test audio to complete
         
-        print(f"Now playing response audio: {new_audio_file}")
-        audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
+        # Use a manual approach to play the sound
+        print(f"Directly playing the response audio: {new_audio_file}")
+        
+        try:
+            # Try a simple system call to play the audio file
+            os.system(f"aplay {new_audio_file}")
+            print("Audio playback completed via system command")
+        except Exception as e:
+            print(f"ERROR playing with system command: {e}")
+            
+            # Fallback to our AudioManager
+            print(f"Falling back to AudioManager for: {new_audio_file}")
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
 
     else:
         print(f"Server error: {response.status_code}, {response.text}")
