@@ -12,8 +12,7 @@ import time
 import threading
 import subprocess
 
-# Our new audio manager
-from audio_manager import AudioManager, AUDIO_CMD_PLAY, AUDIO_CMD_LOOP, AUDIO_CMD_STOP
+# We're using direct aplay commands now, no need for audio_manager
 
 # Serial Handling python Script
 import serialHandle
@@ -45,8 +44,9 @@ interrupt_event = threading.Event()
 # Global state object for tracking playback
 class State:
     def __init__(self):
-        self.in_playback_mode = False
-        self.current_audio_pid = None
+        self.in_playback_mode = False  # True when in a capture-to-response cycle
+        self.current_audio_pid = None  # Current audio process PID
+        self.is_audio_playing = threading.Event()  # Flag to track if audio is playing
         
 app_state = State()
 
@@ -68,15 +68,8 @@ def capture_image():
 
     Image.fromarray(frame).save(image_path)
     
-    # Play shutter sound using direct aplay call
-    try:
-        subprocess.Popen(["aplay", "tempclick.wav"], 
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE)
-        # Set flag so we can track it
-        audio_manager.is_audio_playing.set()
-    except Exception as e:
-        print(f"Error playing shutter sound: {e}")
+    # Play shutter sound
+    audio_manager.play_sound("tempclick.wav")
 
     print(f"Captured image: {image_path}")
     serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Vibrate on Arduino
@@ -102,55 +95,9 @@ def send_request(image_path):
 
     print(f"Sending image: {image_path} to {URL}")
     
-    # Set up a flag to control keyboard sound looping
-    keyboard_loop_active = threading.Event()
-    keyboard_loop_active.set()  # Start with active flag
-    
-    # Create a function to play keyboard sound in a loop
-    def keyboard_sound_loop():
-        while keyboard_loop_active.is_set():
-            try:
-                # Play keyboard sound once
-                kb_proc = subprocess.Popen(["aplay", "-q", "keyboard.wav"], 
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE)
-                
-                # Store current PID in app state
-                app_state.current_audio_pid = kb_proc.pid
-                
-                # Set flag so we can track it
-                audio_manager.is_audio_playing.set()
-                
-                # Wait for this instance to complete
-                kb_proc.wait()
-                
-                # Only small delay between loops if still active
-                if keyboard_loop_active.is_set():
-                    time.sleep(0.1)
-            except Exception as e:
-                print(f"Error in keyboard sound loop: {e}")
-                time.sleep(0.5)  # Wait a bit before retrying
-    
-    # Start the keyboard sound loop in a background thread
-    keyboard_thread = threading.Thread(target=keyboard_sound_loop, daemon=True)
-    keyboard_thread.start()
+    # Start keyboard sound loop using AudioManager
+    audio_manager.loop_sound("keyboard.wav")
     print("Started keyboard sound loop in background")
-    
-    # Function to stop the keyboard sound when needed
-    def stop_keyboard_sound():
-        keyboard_loop_active.clear()  # Signal thread to stop looping
-        # Kill any existing keyboard process
-        try:
-            if app_state.current_audio_pid:
-                subprocess.run(["kill", str(app_state.current_audio_pid)], 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE)
-            # Also try pkill to be thorough
-            subprocess.run(["pkill", "-f", "aplay"], 
-                          stdout=subprocess.PIPE, 
-                          stderr=subprocess.PIPE)
-        except Exception as e:
-            print(f"Error stopping keyboard sound: {e}")
     
     # Create a flag to track if we've been interrupted
     interrupted = False
@@ -161,16 +108,8 @@ def send_request(image_path):
         if serialHandle.last_command == "TAKE_PICTURE":
             print("Interrupt detected: cancelling request and audio")
             
-            # Stop keyboard sound loop
-            nonlocal keyboard_loop_active
-            keyboard_loop_active.clear()
-            
-            # Use our helper function to stop the keyboard sound
-            stop_keyboard_sound()
-            
-            # Clear flags
-            audio_manager.is_audio_playing.clear()
-            app_state.current_audio_pid = None
+            # Stop all audio via AudioManager
+            audio_manager.stop_all_audio()
                 
             serialHandle.last_command = None
             nonlocal interrupted
@@ -204,16 +143,14 @@ def send_request(image_path):
 
     except requests.RequestException as e:
         print(f"Request failed: {e}")
-        # Stop the keyboard sound loop
-        stop_keyboard_sound()
-        time.sleep(0.5)  # Wait for sound to fully stop
+        # Stop all audio
+        audio_manager.stop_all_audio()
         return
 
     # After request finishes
     print("Request completed, stopping keyboard sound")
-    # Stop the keyboard sound loop
-    stop_keyboard_sound()
-    time.sleep(0.5)  # Wait longer to ensure complete stop
+    # Stop all audio via AudioManager
+    audio_manager.stop_all_audio()
     
     # Check for interruption again after request finishes
     if interrupted or check_for_interruption():
@@ -272,12 +209,14 @@ def send_request(image_path):
                     header = test_f.read(12)  # Read RIFF header
                     if not header.startswith(b'RIFF'):
                         print(f"WARNING: Saved file does not have a valid WAV header")
-                        audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)
+                        # Play error sound
+                        audio_manager.play_error_sound()
                         return
             
         except Exception as e:
             print(f"ERROR saving audio file: {e}")
-            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            # Play error sound
+            audio_manager.play_error_sound()
             return
 
         # One final check for interruption before playing
@@ -288,7 +227,8 @@ def send_request(image_path):
         # Verify file exists before playing
         if not os.path.exists(new_audio_file) or os.path.getsize(new_audio_file) < 100:
             print(f"WARNING: Audio file missing or too small: {new_audio_file}")
-            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            # Play error sound
+            audio_manager.play_error_sound()
             return
         
         # Sleep before playing to ensure previous audio is fully stopped
@@ -299,65 +239,17 @@ def send_request(image_path):
             print("Interrupted just before playback: cancelling playback")
             return
             
-        # Use a manual approach to play the sound
-        print(f"Directly playing the response audio: {new_audio_file}")
+        # Play the response audio
+        print(f"Playing response audio: {new_audio_file}")
         
-        # Use AudioManager instead of system call so we can interrupt it
-        print(f"Playing response audio using AudioManager: {new_audio_file}")
+        # Let AudioManager handle all the details
+        audio_manager.in_playback_mode = True  # Mark that we're in playback mode
         
-        # Debug audio file before playing
-        if os.path.exists(new_audio_file):
-            print(f"CONFIRMED: Audio file exists: {new_audio_file} ({os.path.getsize(new_audio_file)} bytes)")
-            # Check if the file is readable
-            try:
-                with open(new_audio_file, 'rb') as test_f:
-                    header = test_f.read(12)
-                    print(f"Audio file header: {header}")
-            except Exception as e:
-                print(f"ERROR reading audio file: {e}")
+        if audio_manager.play_sound(new_audio_file):
+            print("SUCCESS: Response audio playback started")
         else:
-            print(f"ERROR: Audio file does not exist: {new_audio_file}")
-            print(f"Looking in absolute path: {os.path.abspath(new_audio_file)}")
-            return  # Don't try to play if the file doesn't exist
-        
-        print("PLAYING NOW: Using direct aplay for response audio")
-        
-        try:
-            # Always use direct aplay for simplicity and consistency
-            print(f"Starting aplay for response audio: {new_audio_file}")
-            # Start aplay in background
-            response_proc = subprocess.Popen(["aplay", new_audio_file],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-            
-            # Store the process ID and set flags
-            app_state.current_audio_pid = response_proc.pid
-            audio_manager.is_audio_playing.set()
-            app_state.in_playback_mode = True
-            
-            print(f"Started response audio playback, pid={response_proc.pid}")
-            
-            # Start a monitor thread to update flags when playback ends
-            def monitor_response_audio():
-                try:
-                    response_proc.wait()
-                    print("Response audio playback completed")
-                    audio_manager.is_audio_playing.clear()
-                    app_state.in_playback_mode = False
-                    app_state.current_audio_pid = None
-                except Exception as e:
-                    print(f"Error in monitor thread: {e}")
-            
-            # Start the monitor thread
-            monitor_thread = threading.Thread(target=monitor_response_audio, daemon=True)
-            monitor_thread.start()
-            
-            print("SUCCESS: Audio playback started and monitor thread running")
-            
-        except Exception as e:
-            print(f"ERROR starting audio playback: {e}")
-            audio_manager.is_audio_playing.clear()
-            app_state.in_playback_mode = False
+            print("ERROR: Failed to start response audio playback")
+            audio_manager.in_playback_mode = False
 
     else:
         print(f"Server error: {response.status_code}, {response.text}")
@@ -374,7 +266,7 @@ def take_picture():
         return False
 
     # Set the playback mode true as we're about to start a response cycle
-    app_state.in_playback_mode = True
+    audio_manager.in_playback_mode = True
     
     send_request(image_path)
     
@@ -385,27 +277,11 @@ def stop_process():
     """Triggered by STOP_PROCESS command."""
     interrupt_event.set()
     
-    # Stop audio directly with system commands
-    try:
-        # First try to kill the specific audio process if we know its PID
-        if app_state.current_audio_pid:
-            subprocess.run(["kill", str(app_state.current_audio_pid)], 
-                          stdout=subprocess.PIPE, 
-                          stderr=subprocess.PIPE)
-            print(f"Killed audio process with pid {app_state.current_audio_pid}")
-        
-        # Then kill all aplay processes to be safe
-        subprocess.run(["pkill", "-f", "aplay"], 
-                      stdout=subprocess.PIPE, 
-                      stderr=subprocess.PIPE)
-        print("Killed all aplay processes")
-    except Exception as e:
-        print(f"Error stopping system audio: {e}")
+    # Use AudioManager to stop all audio
+    audio_manager.stop_all_audio()
     
-    # Reset all state flags
-    app_state.in_playback_mode = False
-    app_state.current_audio_pid = None
-    audio_manager.is_audio_playing.clear()
+    # Reset playback mode
+    audio_manager.in_playback_mode = False
         
     print("Processes stopped.")
 
@@ -413,51 +289,19 @@ def main_loop():
     print("🔄 Running command loop...")
 
     while True:
-        # Check if playback has naturally ended
-        if app_state.in_playback_mode and not audio_manager.is_playing():
-            # Check if any aplay processes are still running
-            try:
-                result = subprocess.run(["pgrep", "-f", "aplay"], 
-                                     stdout=subprocess.PIPE, 
-                                     stderr=subprocess.PIPE)
-                if result.returncode != 0:  # No aplay processes found
-                    print("Audio playback has naturally completed")
-                    app_state.in_playback_mode = False
-            except Exception:
-                # If we can't check, assume it might have ended
-                pass
-                
         cmd = serialHandle.last_command
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
             
             # Check if audio is playing and stop it
-            if audio_manager.is_playing() or app_state.in_playback_mode:
+            if audio_manager.is_playing() or audio_manager.in_playback_mode:
                 print("Cancelling audio playback")
                 
-                # Kill audio processes directly
-                try:
-                    # First try to kill specific process if we know its PID
-                    if app_state.current_audio_pid:
-                        subprocess.run(["kill", str(app_state.current_audio_pid)], 
-                                      stdout=subprocess.PIPE, 
-                                      stderr=subprocess.PIPE)
-                        print(f"Killed specific audio process: pid={app_state.current_audio_pid}")
-                    
-                    # Then kill all aplay processes to be thorough
-                    subprocess.run(["pkill", "-f", "aplay"], 
-                                  stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE)
-                    print("Killed all aplay processes")
-                except Exception as e:
-                    print(f"Error stopping system audio: {e}")
-                    
-                time.sleep(0.2)  # Small delay to ensure audio stops
+                # Stop all audio via AudioManager
+                audio_manager.stop_all_audio()
                 
-                # Reset all state flags
-                app_state.in_playback_mode = False
-                app_state.current_audio_pid = None
-                audio_manager.is_audio_playing.clear()
+                # Reset playback mode
+                audio_manager.in_playback_mode = False
                 
                 # Skip taking a picture since we're just stopping audio
                 print("Audio stopped - press button again to take a new picture")
