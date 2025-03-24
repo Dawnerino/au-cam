@@ -224,17 +224,36 @@ class AudioManager:
             file_size = os.path.getsize(file_path)
             print(f"DEBUG: File size of {file_path}: {file_size} bytes")
             
-            if file_size > 10000000:  # If file larger than 10MB
-                print(f"WARNING: Audio file {file_path} is very large ({file_size} bytes). This might cause issues.")
+            try:
+                # Try to play using system command directly for large files
+                if file_size > 1000000:  # >1MB, try direct system play
+                    print(f"LARGE FILE: Using system play for large file: {file_path}")
+                    try:
+                        import subprocess
+                        # Start aplay in a separate process as non-blocking
+                        subprocess.Popen(["aplay", file_path], 
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE)
+                        # Set playing flag but return empty data
+                        self.is_audio_playing.set()
+                        print(f"Started system playback for large file: {file_path}")
+                        # Return dummy data to keep code flow consistent
+                        return np.zeros(1024, dtype=np.int16), 44100
+                    except Exception as sys_e:
+                        print(f"ERROR with system play, falling back: {sys_e}")
+                        # Continue with normal processing
+            except Exception as size_e:
+                print(f"ERROR checking file size: {size_e}")
             
             try:
                 # Try first reading the header to check if it's valid
                 with open(file_path, 'rb') as f:
-                    header = f.read(12)
+                    header = f.read(44)  # Read WAV header (44 bytes)
                     if not header.startswith(b'RIFF'):
                         print(f"ERROR: Not a valid WAV file (no RIFF header): {file_path}")
-                        print(f"First bytes: {header}")
+                        print(f"First bytes: {header[:20]}")
                         return np.zeros(1024, dtype=np.int16), 44100
+                    print(f"VALID HEADER: Found RIFF/WAV header in {file_path}")
             except Exception as header_e:
                 print(f"ERROR reading file header: {header_e}")
                 
@@ -246,17 +265,29 @@ class AudioManager:
                     n_frames = wf.getnframes()
                     print(f"DEBUG: WAV header info - frames: {n_frames}, rate: {sample_rate}Hz, channels: {channels}")
                     
-                    # Read data in chunks if file is large
-                    if n_frames > 1000000:  # If over ~22 seconds at 44.1kHz
-                        print(f"WARNING: Large audio file, reading first 10 seconds only")
-                        frames = wf.readframes(441000)  # ~10 seconds of audio at 44.1kHz
-                    else:
-                        frames = wf.readframes(n_frames)
-                        
+                    # Always limit to first few seconds to avoid memory issues
+                    max_frames = min(n_frames, 441000)  # ~10 seconds at 44.1kHz
+                    if n_frames > 441000:
+                        print(f"LARGE FILE: Reading only first 10 seconds of {file_path}")
+                    
+                    frames = wf.readframes(max_frames)
                     audio_data = np.frombuffer(frames, dtype=np.int16)
+                    
+                    print(f"READ DATA: Successfully read {len(audio_data)} samples from {file_path}")
             except Exception as wave_e:
                 print(f"ERROR parsing WAV file: {wave_e}")
-                return np.zeros(1024, dtype=np.int16), 44100
+                # Try direct system play if wave module failed
+                try:
+                    import subprocess
+                    subprocess.Popen(["aplay", file_path], 
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE)
+                    self.is_audio_playing.set()
+                    print(f"Fallback: Started system playback after wave error: {file_path}")
+                    return np.zeros(1024, dtype=np.int16), 44100
+                except Exception as sys_e2:
+                    print(f"ERROR with fallback system play: {sys_e2}")
+                    return np.zeros(1024, dtype=np.int16), 44100
 
             # Debug information about the loaded audio
             print(f"DEBUG: Loaded audio file {file_path}")
@@ -274,5 +305,15 @@ class AudioManager:
             
         except Exception as e:
             print(f"ERROR: Failed to load audio file {file_path}: {e}")
-            # Return minimal valid data to prevent crashes
-            return np.zeros(1024, dtype=np.int16), 44100
+            # Try direct system play as a last resort
+            try:
+                import subprocess
+                subprocess.Popen(["aplay", file_path], 
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
+                self.is_audio_playing.set()
+                print(f"Last resort: Started system playback after error: {file_path}")
+                return np.zeros(1024, dtype=np.int16), 44100
+            except Exception as sys_e3:
+                print(f"FINAL ERROR with system play: {sys_e3}")
+                return np.zeros(1024, dtype=np.int16), 44100

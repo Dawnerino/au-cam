@@ -273,6 +273,18 @@ def stop_process():
     """Triggered by STOP_PROCESS command."""
     interrupt_event.set()
     audio_manager.send_command(AUDIO_CMD_STOP)
+    
+    # Also kill any system audio processes that might be running
+    try:
+        import subprocess
+        # Kill any aplay processes
+        subprocess.run(["pkill", "-f", "aplay"], 
+                      stdout=subprocess.PIPE, 
+                      stderr=subprocess.PIPE)
+        print("Killed system audio processes")
+    except Exception as e:
+        print(f"Error stopping system audio: {e}")
+        
     print("Processes stopped.")
 
 def main_loop():
@@ -287,6 +299,15 @@ def main_loop():
             if audio_manager.is_playing():
                 print("Cancelling audio playback")
                 audio_manager.send_command(AUDIO_CMD_STOP)
+                # Also kill any system audio processes
+                try:
+                    import subprocess
+                    subprocess.run(["pkill", "-f", "aplay"], 
+                                  stdout=subprocess.PIPE, 
+                                  stderr=subprocess.PIPE)
+                    print("Killed system audio processes")
+                except Exception as e:
+                    print(f"Error stopping system audio: {e}")
                 time.sleep(0.2)  # Small delay to ensure audio stops
             
             # Always take a new picture when the button is pressed
