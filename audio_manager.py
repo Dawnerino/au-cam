@@ -19,6 +19,7 @@ class AudioManager:
         self.currently_looping = False
         self.active_stream = None
         self.stream_lock = threading.Lock()  # Add lock for stream operations
+        self.is_audio_playing = threading.Event()  # Track if audio is playing
         self.audio_thread = threading.Thread(target=self._manager_loop, daemon=True)
         self.audio_thread.start()
 
@@ -55,6 +56,8 @@ class AudioManager:
     def _handle_stop(self):
         """Stops any ongoing or looping audio."""
         self.currently_looping = False
+        self.is_audio_playing.clear()  # Mark that audio is no longer playing
+        
         with self.stream_lock:
             if self.active_stream and self.active_stream.active:
                 try:
@@ -81,6 +84,9 @@ class AudioManager:
             audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
 
             print(f"Playing {file_path} at {volume}% volume")
+            
+            # Mark that audio is now playing
+            self.is_audio_playing.set()
 
             with self.stream_lock:
                 # Create stream
@@ -95,6 +101,7 @@ class AudioManager:
                     stream_active = True
                 except Exception as e:
                     print(f"ERROR creating audio stream: {e}")
+                    self.is_audio_playing.clear()  # Mark that audio is not playing
                     return
 
             # Write in small chunks
@@ -132,10 +139,17 @@ class AudioManager:
             with self.stream_lock:
                 if self.active_stream and self.active_stream.active:
                     self._handle_stop()  # Stop automatically after single playback
+                else:
+                    # Just clear the playing flag if the stream was already stopped
+                    self.is_audio_playing.clear()
         
         except Exception as e:
             print(f"Error in audio playback: {e}")
 
+    def is_playing(self):
+        """Returns True if audio is currently playing."""
+        return self.is_audio_playing.is_set()
+        
     def _handle_loop(self, file_path, volume):
         """Loops a WAV file until a STOP command is issued."""
         self._handle_stop()
@@ -145,6 +159,7 @@ class AudioManager:
 
         try:
             self.currently_looping = True
+            self.is_audio_playing.set()  # Mark that audio is now playing
             print(f"Looping {file_path} at {volume}% volume")
 
             audio_data, sample_rate = self._load_wav(file_path)

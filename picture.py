@@ -81,17 +81,44 @@ def send_request(image_path):
 
     print(f"Sending image: {image_path} to {URL}")
     audio_manager.send_command(AUDIO_CMD_LOOP, file_path="keyboard.wav", volume=100)
+    
+    # Create a flag to track if we've been interrupted
+    interrupted = False
+
+    # Create a function to check for interruptions
+    def check_for_interruption():
+        # Check if TAKE_PICTURE command was received during processing
+        if serialHandle.last_command == "TAKE_PICTURE":
+            print("Interrupt detected: cancelling request and audio")
+            audio_manager.send_command(AUDIO_CMD_STOP)
+            serialHandle.last_command = None
+            nonlocal interrupted
+            interrupted = True
+            return True
+        return False
 
     try:
+        # Set up the request but don't send it yet
         with open(image_path, "rb") as f:
             files = {"image": f}
+            
+            # Check for interruption before sending
+            if check_for_interruption():
+                return
+            
+            # Start a thread to periodically check for interruptions
+            interrupt_check_thread = threading.Thread(
+                target=lambda: [time.sleep(0.2), check_for_interruption()] * 150,  # Check every 0.2s for 30s
+                daemon=True
+            )
+            interrupt_check_thread.start()
+            
+            # Now send the request
             response = requests.post(URL, files=files, timeout=30)
-
-            if serialHandle.last_command == "TAKE_PICTURE":
-                print("Interrupt: stopping request + audio.")
+            
+            # Check for interruption immediately after response
+            if check_for_interruption():
                 response.close()
-                audio_manager.send_command(AUDIO_CMD_STOP)
-                serialHandle.last_command = None
                 return
 
     except requests.RequestException as e:
@@ -102,6 +129,11 @@ def send_request(image_path):
     # After request finishes
     audio_manager.send_command(AUDIO_CMD_STOP)  # stop the loop
     time.sleep(0.5)  # Wait longer to ensure complete stop
+    
+    # Check for interruption again after request finishes
+    if interrupted or check_for_interruption():
+        print("Interrupted: skipping response processing")
+        return
 
     if response.status_code == 200:
         # Check if response actually contains audio data
@@ -110,11 +142,21 @@ def send_request(image_path):
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
             return
             
+        # Check for interruption before saving audio
+        if check_for_interruption():
+            print("Interrupted: skipping audio save and playback")
+            return
+            
         # Check if response is actually a WAV file (should start with RIFF header)
         if not response.content.startswith(b'RIFF'):
             print(f"WARNING: Response is not a valid WAV file (no RIFF header)")
             print(f"First 20 bytes of response: {response.content[:20]}")
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            return
+            
+        # Check for interruption before saving audio
+        if check_for_interruption():
+            print("Interrupted: skipping audio save and playback")
             return
             
         # Save response
@@ -132,6 +174,11 @@ def send_request(image_path):
             
             print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
             
+            # Check for interruption after saving
+            if check_for_interruption():
+                print("Interrupted after saving: skipping validation and playback")
+                return
+            
             # Check if audio file was correctly saved and is a valid WAV
             if os.path.exists(new_audio_file):
                 with open(new_audio_file, "rb") as test_f:
@@ -146,10 +193,9 @@ def send_request(image_path):
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
             return
 
-        if serialHandle.last_command == "TAKE_PICTURE":
-            print("Interrupt before playing response. Skipping.")
-            audio_manager.send_command(AUDIO_CMD_STOP)
-            serialHandle.last_command = None
+        # One final check for interruption before playing
+        if check_for_interruption():
+            print("Interrupted: skipping audio playback")
             return
 
         # Verify file exists before playing
@@ -161,6 +207,11 @@ def send_request(image_path):
         # Sleep before playing to ensure previous audio is fully stopped
         time.sleep(0.5)
         
+        # Final interruption check before playing
+        if check_for_interruption():
+            print("Interrupted just before playback: cancelling playback")
+            return
+            
         # Use a manual approach to play the sound
         print(f"Directly playing the response audio: {new_audio_file}")
         
@@ -171,6 +222,11 @@ def send_request(image_path):
         except Exception as e:
             print(f"ERROR playing with system command: {e}")
             
+            # One last interruption check before fallback
+            if check_for_interruption():
+                print("Interrupted during fallback: cancelling playback")
+                return
+                
             # Fallback to our AudioManager
             print(f"Falling back to AudioManager for: {new_audio_file}")
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
@@ -190,6 +246,9 @@ def take_picture():
         return
 
     send_request(image_path)
+    
+    # Return True to indicate we've started a capture-to-response cycle
+    return True
 
 def stop_process():
     """Triggered by STOP_PROCESS command."""
@@ -199,21 +258,44 @@ def stop_process():
 
 def main_loop():
     print("🔄 Running command loop...")
+    
+    # Track if we're currently playing response audio
+    playing_response = False
 
     while True:
         cmd = serialHandle.last_command
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
-            take_picture()
+            
+            # If we're playing a response, just stop the audio without taking a picture
+            if playing_response:
+                print("Cancelling audio playback without taking picture")
+                audio_manager.send_command(AUDIO_CMD_STOP)
+                stop_process()  # Use the stop process function to make sure everything is stopped
+                playing_response = False
+            else:
+                # Otherwise, take a picture as usual
+                print("Taking a new picture...")
+                result = take_picture()
+                playing_response = True if result else False
+                
         elif cmd == "STOP_PROCESS":
             serialHandle.last_command = None
             stop_process()
+            playing_response = False
+            
         elif cmd == "INCREASE_VOLUME":
             serialHandle.last_command = None
             print("🔊 Increase volume... (not implemented)")
+            
         elif cmd == "DECREASE_VOLUME":
             serialHandle.last_command = None
             print("🔉 Decrease volume... (not implemented)")
+            
+        # Reset playing_response if audio has completed
+        if playing_response and not audio_manager.is_playing():
+            playing_response = False
+            
         time.sleep(0.1)
 
 if __name__ == "__main__":
