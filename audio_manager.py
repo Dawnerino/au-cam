@@ -20,8 +20,14 @@ class AudioManager:
         self.loop_active = threading.Event()
         self.loop_thread = None
 
-    def play_sound(self, file_path, volume=100):
-        """Play a sound file once."""
+    def play_sound(self, file_path, volume=100, callback=None):
+        """Play a sound file once.
+        
+        Args:
+            file_path: Path to WAV file
+            volume: Volume 0-100
+            callback: Optional function to call when playback completes
+        """
         # First stop any playing sounds
         self.stop_all_audio()
         
@@ -46,6 +52,14 @@ class AudioManager:
                     print(f"Sound playback of {file_path} completed")
                     self.is_audio_playing.clear()
                     self.current_audio_pid = None
+                    
+                    # Reset playback mode when audio finishes
+                    self.in_playback_mode = False
+                    
+                    # Call the callback if provided
+                    if callback:
+                        callback()
+                        
                 except Exception as e:
                     print(f"Error in monitor thread: {e}")
             

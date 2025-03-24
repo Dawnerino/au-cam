@@ -287,13 +287,21 @@ def send_request(image_path):
             print("Interrupted just before playback: cancelling playback")
             return
             
+        # Define callback for when audio completes
+        def on_audio_complete():
+            print("Audio playback completed - ready for next command")
+            # No need to reset mode flag here, AudioManager does it automatically now
+            
+        # Send serial command to indicate request is complete and playback starting
+        serialHandle.send_serial_command("REQUEST_COMPLETE")
+        
         # Play the response audio
         print(f"Playing response audio: {new_audio_file}")
         
         # Let AudioManager handle all the details
         audio_manager.in_playback_mode = True  # Mark that we're in playback mode
         
-        if audio_manager.play_sound(new_audio_file):
+        if audio_manager.play_sound(new_audio_file, callback=on_audio_complete):
             print("SUCCESS: Response audio playback started")
         else:
             print("ERROR: Failed to start response audio playback")
