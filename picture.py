@@ -215,21 +215,9 @@ def send_request(image_path):
         # Use a manual approach to play the sound
         print(f"Directly playing the response audio: {new_audio_file}")
         
-        try:
-            # Try a simple system call to play the audio file
-            os.system(f"aplay {new_audio_file}")
-            print("Audio playback completed via system command")
-        except Exception as e:
-            print(f"ERROR playing with system command: {e}")
-            
-            # One last interruption check before fallback
-            if check_for_interruption():
-                print("Interrupted during fallback: cancelling playback")
-                return
-                
-            # Fallback to our AudioManager
-            print(f"Falling back to AudioManager for: {new_audio_file}")
-            audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
+        # Use AudioManager instead of system call so we can interrupt it
+        print(f"Playing response audio using AudioManager: {new_audio_file}")
+        audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
 
     else:
         print(f"Server error: {response.status_code}, {response.text}")
@@ -258,31 +246,25 @@ def stop_process():
 
 def main_loop():
     print("🔄 Running command loop...")
-    
-    # Track if we're currently playing response audio
-    playing_response = False
 
     while True:
         cmd = serialHandle.last_command
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
             
-            # If we're playing a response, just stop the audio without taking a picture
-            if playing_response:
-                print("Cancelling audio playback without taking picture")
+            # Check if audio is playing and stop it
+            if audio_manager.is_playing():
+                print("Cancelling audio playback")
                 audio_manager.send_command(AUDIO_CMD_STOP)
-                stop_process()  # Use the stop process function to make sure everything is stopped
-                playing_response = False
-            else:
-                # Otherwise, take a picture as usual
-                print("Taking a new picture...")
-                result = take_picture()
-                playing_response = True if result else False
+                time.sleep(0.2)  # Small delay to ensure audio stops
+            
+            # Always take a new picture when the button is pressed
+            print("Taking a new picture...")
+            take_picture()
                 
         elif cmd == "STOP_PROCESS":
             serialHandle.last_command = None
             stop_process()
-            playing_response = False
             
         elif cmd == "INCREASE_VOLUME":
             serialHandle.last_command = None
@@ -291,10 +273,6 @@ def main_loop():
         elif cmd == "DECREASE_VOLUME":
             serialHandle.last_command = None
             print("🔉 Decrease volume... (not implemented)")
-            
-        # Reset playing_response if audio has completed
-        if playing_response and not audio_manager.is_playing():
-            playing_response = False
             
         time.sleep(0.1)
 
