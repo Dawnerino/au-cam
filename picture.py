@@ -101,7 +101,7 @@ def send_request(image_path):
 
     # After request finishes
     audio_manager.send_command(AUDIO_CMD_STOP)  # stop the loop
-    time.sleep(0.2)
+    time.sleep(0.5)  # Wait longer to ensure complete stop
 
     if response.status_code == 200:
         # Check if response actually contains audio data
@@ -111,13 +111,20 @@ def send_request(image_path):
             return
             
         # Save response
-        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
-        with open(new_audio_file, "wb") as af:
-            af.write(response.content)
-            af.flush()
-            os.fsync(af.fileno())
-
-        print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
+        random_id = random.randint(1000, 9999)
+        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}.wav")
+        
+        try:
+            with open(new_audio_file, "wb") as af:
+                af.write(response.content)
+                af.flush()
+                os.fsync(af.fileno())
+            
+            print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
+        except Exception as e:
+            print(f"ERROR saving audio file: {e}")
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            return
 
         if serialHandle.last_command == "TAKE_PICTURE":
             print("Interrupt before playing response. Skipping.")
@@ -130,9 +137,16 @@ def send_request(image_path):
             print(f"WARNING: Audio file missing or too small: {new_audio_file}")
             audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
             return
+        
+        # Sleep before playing to ensure previous audio is fully stopped
+        time.sleep(0.5)
             
-        # Play response
-        print(f"Playing response audio: {new_audio_file}")
+        # Play response audio - use a simpler test audio first to check
+        print(f"Testing audio system with tempclick.wav")
+        audio_manager.send_command(AUDIO_CMD_PLAY, file_path="tempclick.wav", volume=100)
+        time.sleep(1.0)  # Wait for test audio to complete
+        
+        print(f"Now playing response audio: {new_audio_file}")
         audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
 
     else:

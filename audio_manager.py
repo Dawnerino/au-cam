@@ -75,6 +75,7 @@ class AudioManager:
             return
 
         try:
+            print(f"DEBUG: About to load WAV file: {file_path}")
             audio_data, sample_rate = self._load_wav(file_path)
             # Apply volume
             audio_data = np.clip(audio_data * (volume / 100), -32768, 32767).astype(np.int16)
@@ -83,14 +84,18 @@ class AudioManager:
 
             with self.stream_lock:
                 # Create stream
-                self.active_stream = sd.OutputStream(
-                    samplerate=sample_rate,
-                    channels=(audio_data.shape[1] if audio_data.ndim > 1 else 1),
-                    dtype='int16'
-                )
-                print("DEBUG: Successfully opened stream, starting chunk writes.")
-                self.active_stream.start()
-                stream_active = True
+                try:
+                    self.active_stream = sd.OutputStream(
+                        samplerate=sample_rate,
+                        channels=(audio_data.shape[1] if audio_data.ndim > 1 else 1),
+                        dtype='int16'
+                    )
+                    print("DEBUG: Successfully opened stream, starting chunk writes.")
+                    self.active_stream.start()
+                    stream_active = True
+                except Exception as e:
+                    print(f"ERROR creating audio stream: {e}")
+                    return
 
             # Write in small chunks
             chunk_size = 2048
@@ -190,22 +195,28 @@ class AudioManager:
 
     def _load_wav(self, file_path):
         """Loads a WAV file into NumPy array."""
-        with wave.open(file_path, 'rb') as wf:
-            frames = wf.readframes(wf.getnframes())
-            audio_data = np.frombuffer(frames, dtype=np.int16)
-            channels = wf.getnchannels()
-            sample_rate = wf.getframerate()
+        try:
+            with wave.open(file_path, 'rb') as wf:
+                frames = wf.readframes(wf.getnframes())
+                audio_data = np.frombuffer(frames, dtype=np.int16)
+                channels = wf.getnchannels()
+                sample_rate = wf.getframerate()
 
-        # Debug information about the loaded audio
-        print(f"DEBUG: Loaded audio file {file_path}")
-        print(f"DEBUG: Audio length: {len(audio_data)} samples, Sample rate: {sample_rate}Hz, Channels: {channels}")
-        
-        if len(audio_data) == 0:
-            print(f"WARNING: Audio file {file_path} contains no data!")
+            # Debug information about the loaded audio
+            print(f"DEBUG: Loaded audio file {file_path}")
+            print(f"DEBUG: Audio length: {len(audio_data)} samples, Sample rate: {sample_rate}Hz, Channels: {channels}")
+            
+            if len(audio_data) == 0:
+                print(f"WARNING: Audio file {file_path} contains no data!")
+                # Return minimal valid data to prevent crashes
+                return np.zeros(1024, dtype=np.int16), 44100
+
+            if channels == 2:
+                audio_data = audio_data.reshape(-1, 2)
+
+            return audio_data, sample_rate
+            
+        except Exception as e:
+            print(f"ERROR: Failed to load audio file {file_path}: {e}")
             # Return minimal valid data to prevent crashes
             return np.zeros(1024, dtype=np.int16), 44100
-
-        if channels == 2:
-            audio_data = audio_data.reshape(-1, 2)
-
-        return audio_data, sample_rate
