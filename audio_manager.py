@@ -224,26 +224,29 @@ class AudioManager:
             file_size = os.path.getsize(file_path)
             print(f"DEBUG: File size of {file_path}: {file_size} bytes")
             
-            try:
-                # Try to play using system command directly for large files
-                if file_size > 1000000:  # >1MB, try direct system play
-                    print(f"LARGE FILE: Using system play for large file: {file_path}")
-                    try:
-                        import subprocess
+            # Special handling for large files - guaranteed to run for large files
+            if file_size > 500000:  # >500KB, definitely use system play
+                print(f"LARGE FILE DETECTED: {file_path} is {file_size} bytes - using direct system playback")
+                try:
+                    import subprocess
+                    import os
+                    # Make sure file exists and is readable
+                    if not os.path.exists(file_path):
+                        print(f"ERROR: File does not exist: {file_path}")
+                    else:
+                        print(f"Starting aplay subprocess for {file_path}")
                         # Start aplay in a separate process as non-blocking
-                        subprocess.Popen(["aplay", file_path], 
-                                         stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE)
+                        proc = subprocess.Popen(["aplay", file_path], 
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
                         # Set playing flag but return empty data
                         self.is_audio_playing.set()
-                        print(f"Started system playback for large file: {file_path}")
+                        print(f"DIRECT PLAYBACK: Started system playback for large file: {file_path}, pid={proc.pid}")
                         # Return dummy data to keep code flow consistent
                         return np.zeros(1024, dtype=np.int16), 44100
-                    except Exception as sys_e:
-                        print(f"ERROR with system play, falling back: {sys_e}")
-                        # Continue with normal processing
-            except Exception as size_e:
-                print(f"ERROR checking file size: {size_e}")
+                except Exception as sys_e:
+                    print(f"CRITICAL ERROR with direct system play: {sys_e}")
+                    # Continue with normal processing in case the error was fatal
             
             try:
                 # Try first reading the header to check if it's valid

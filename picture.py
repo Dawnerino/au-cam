@@ -241,14 +241,34 @@ def send_request(image_path):
             return  # Don't try to play if the file doesn't exist
         
         print("PLAYING NOW: Sending to audio manager...")
-        audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
         
-        # Check if playing started
-        time.sleep(0.5)
-        if audio_manager.is_playing():
-            print("SUCCESS: Audio playback started")
+        # For large files, bypass AudioManager and use direct system call
+        file_size = os.path.getsize(new_audio_file)
+        if file_size > 500000:  # >500KB
+            print(f"LARGE FILE: Using direct system playback for {new_audio_file} ({file_size} bytes)")
+            try:
+                import subprocess
+                # Start aplay in foreground mode so it's easier to interrupt
+                print(f"Starting direct system playback with aplay")
+                # Setting audio flag manually since we're bypassing audio_manager
+                audio_manager.is_audio_playing.set()
+                # Start the process in background
+                proc = subprocess.Popen(["aplay", new_audio_file],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+                print(f"DIRECT PLAY: Started aplay process, pid={proc.pid}")
+            except Exception as e:
+                print(f"ERROR starting direct playback: {e}")
         else:
-            print("PROBLEM: Audio manager did not start playback")
+            # For smaller files, use AudioManager
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
+            
+            # Check if playing started
+            time.sleep(0.5)
+            if audio_manager.is_playing():
+                print("SUCCESS: Audio playback started")
+            else:
+                print("PROBLEM: Audio manager did not start playback")
 
     else:
         print(f"Server error: {response.status_code}, {response.text}")
