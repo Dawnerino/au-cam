@@ -134,16 +134,58 @@ def send_request(image_path):
             )
             interrupt_check_thread.start()
             
-            # Now send the request
-            response = requests.post(URL, files=files, timeout=120)
-            
-            # Check for interruption immediately after response
+            # Create a streaming request that can be interrupted
+            try:
+                # Start the request with stream=True so we can monitor for interruptions
+                response = requests.post(URL, files=files, timeout=120, stream=True)
+                
+                # Check status code before downloading content
+                if response.status_code != 200:
+                    print(f"Server error: {response.status_code}, {response.text}")
+                    return
+                
+                # We'll download the content in chunks while periodically checking for interruptions
+                content_chunks = []
+                for chunk in response.iter_content(chunk_size=8192):
+                    # Check for interruptions after each chunk
+                    if check_for_interruption():
+                        print("Request interrupted during download, aborting")
+                        response.close()
+                        return
+                    
+                    # Store the chunk if we're continuing
+                    if chunk:
+                        content_chunks.append(chunk)
+                        print(f"Downloaded {len(content_chunks)} chunks (~{sum(len(c) for c in content_chunks)/1024:.1f} KB)")
+                
+                # Combine all chunks to get full content
+                full_content = b''.join(content_chunks)
+                
+                # Create a new response-like object with the content
+                class ResponseWrapper:
+                    def __init__(self, original_response, content):
+                        self.status_code = original_response.status_code
+                        self.content = content
+                        self.text = original_response.text
+                    
+                    def close(self):
+                        original_response.close()
+                
+                # Replace the streaming response with our fully loaded one
+                response = ResponseWrapper(response, full_content)
+                
+            except requests.RequestException as e:
+                print(f"Request error during streaming: {e}")
+                audio_manager.stop_all_audio()
+                return
+                
+            # Check for interruption now that download is complete
             if check_for_interruption():
                 response.close()
                 return
 
     except requests.RequestException as e:
-        print(f"Request failed: {e}")
+        print(f"Request connection failed: {e}")
         # Stop all audio
         audio_manager.stop_all_audio()
         return
