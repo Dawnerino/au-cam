@@ -104,6 +104,12 @@ def send_request(image_path):
     time.sleep(0.2)
 
     if response.status_code == 200:
+        # Check if response actually contains audio data
+        if not response.content or len(response.content) < 100:
+            print(f"WARNING: Empty or too small response from server: {len(response.content)} bytes")
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            return
+            
         # Save response
         new_audio_file = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
         with open(new_audio_file, "wb") as af:
@@ -111,7 +117,7 @@ def send_request(image_path):
             af.flush()
             os.fsync(af.fileno())
 
-        print(f"Audio file saved: {new_audio_file}")
+        print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
 
         if serialHandle.last_command == "TAKE_PICTURE":
             print("Interrupt before playing response. Skipping.")
@@ -119,7 +125,14 @@ def send_request(image_path):
             serialHandle.last_command = None
             return
 
+        # Verify file exists before playing
+        if not os.path.exists(new_audio_file) or os.path.getsize(new_audio_file) < 100:
+            print(f"WARNING: Audio file missing or too small: {new_audio_file}")
+            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            return
+            
         # Play response
+        print(f"Playing response audio: {new_audio_file}")
         audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
 
     else:

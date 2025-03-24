@@ -116,12 +116,14 @@ class AudioManager:
                     except Exception as e:
                         print(f"Error writing to stream: {e}")
                         break
+                    print(f"DEBUG: Wrote chunk {idx}/{total_samples} to stream")
                 
                 idx = end_idx
 
             time.sleep(0.1)  # Let buffer drain
             
             # Only stop if we're still the active stream
+            print(f"DEBUG: Audio playback of {file_path} completed successfully")
             with self.stream_lock:
                 if self.active_stream and self.active_stream.active:
                     self._handle_stop()  # Stop automatically after single playback
@@ -193,6 +195,15 @@ class AudioManager:
             audio_data = np.frombuffer(frames, dtype=np.int16)
             channels = wf.getnchannels()
             sample_rate = wf.getframerate()
+
+        # Debug information about the loaded audio
+        print(f"DEBUG: Loaded audio file {file_path}")
+        print(f"DEBUG: Audio length: {len(audio_data)} samples, Sample rate: {sample_rate}Hz, Channels: {channels}")
+        
+        if len(audio_data) == 0:
+            print(f"WARNING: Audio file {file_path} contains no data!")
+            # Return minimal valid data to prevent crashes
+            return np.zeros(1024, dtype=np.int16), 44100
 
         if channels == 2:
             audio_data = audio_data.reshape(-1, 2)
