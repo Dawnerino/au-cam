@@ -135,7 +135,7 @@ def send_request(image_path):
             interrupt_check_thread.start()
             
             # Now send the request
-            response = requests.post(URL, files=files, timeout=30)
+            response = requests.post(URL, files=files, timeout=120)
             
             # Check for interruption immediately after response
             if check_for_interruption():
