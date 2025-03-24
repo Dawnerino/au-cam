@@ -211,28 +211,52 @@ class AudioManager:
     def _load_wav(self, file_path):
         """Loads a WAV file into NumPy array."""
         try:
+            print(f"LOADING AUDIO: Attempting to load {file_path}")
+            print(f"LOADING AUDIO: Absolute path: {os.path.abspath(file_path)}")
+            
+            # Verify file exists
+            if not os.path.exists(file_path):
+                print(f"ERROR: Audio file does not exist: {file_path}")
+                print(f"Checking current directory: {os.getcwd()}")
+                return np.zeros(1024, dtype=np.int16), 44100
+                
             # Check file size before opening
             file_size = os.path.getsize(file_path)
             print(f"DEBUG: File size of {file_path}: {file_size} bytes")
             
             if file_size > 10000000:  # If file larger than 10MB
                 print(f"WARNING: Audio file {file_path} is very large ({file_size} bytes). This might cause issues.")
+            
+            try:
+                # Try first reading the header to check if it's valid
+                with open(file_path, 'rb') as f:
+                    header = f.read(12)
+                    if not header.startswith(b'RIFF'):
+                        print(f"ERROR: Not a valid WAV file (no RIFF header): {file_path}")
+                        print(f"First bytes: {header}")
+                        return np.zeros(1024, dtype=np.int16), 44100
+            except Exception as header_e:
+                print(f"ERROR reading file header: {header_e}")
                 
-            with wave.open(file_path, 'rb') as wf:
-                # Get basic info first
-                channels = wf.getnchannels()
-                sample_rate = wf.getframerate()
-                n_frames = wf.getnframes()
-                print(f"DEBUG: WAV header info - frames: {n_frames}, rate: {sample_rate}Hz, channels: {channels}")
-                
-                # Read data in chunks if file is large
-                if n_frames > 1000000:  # If over ~22 seconds at 44.1kHz
-                    print(f"WARNING: Large audio file, reading first 10 seconds only")
-                    frames = wf.readframes(441000)  # ~10 seconds of audio at 44.1kHz
-                else:
-                    frames = wf.readframes(n_frames)
+            try:
+                with wave.open(file_path, 'rb') as wf:
+                    # Get basic info first
+                    channels = wf.getnchannels()
+                    sample_rate = wf.getframerate()
+                    n_frames = wf.getnframes()
+                    print(f"DEBUG: WAV header info - frames: {n_frames}, rate: {sample_rate}Hz, channels: {channels}")
                     
-                audio_data = np.frombuffer(frames, dtype=np.int16)
+                    # Read data in chunks if file is large
+                    if n_frames > 1000000:  # If over ~22 seconds at 44.1kHz
+                        print(f"WARNING: Large audio file, reading first 10 seconds only")
+                        frames = wf.readframes(441000)  # ~10 seconds of audio at 44.1kHz
+                    else:
+                        frames = wf.readframes(n_frames)
+                        
+                    audio_data = np.frombuffer(frames, dtype=np.int16)
+            except Exception as wave_e:
+                print(f"ERROR parsing WAV file: {wave_e}")
+                return np.zeros(1024, dtype=np.int16), 44100
 
             # Debug information about the loaded audio
             print(f"DEBUG: Loaded audio file {file_path}")

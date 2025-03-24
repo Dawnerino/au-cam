@@ -28,9 +28,14 @@ picam2.start()
 
 ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
-AUDIO_DIR = "audio"
+# Make sure audio directory is absolute
+AUDIO_DIR = os.path.abspath("audio")  # Convert to absolute path
 URL = os.getenv("URL")
 MAX_AUDIO_FILES = 10
+
+# Debug the path resolution for audio files
+print(f"Current working directory: {os.getcwd()}")
+print(f"Absolute path to AUDIO_DIR: {AUDIO_DIR}")
 
 # Global Vars
 Volume = 100
@@ -161,6 +166,7 @@ def send_request(image_path):
             
         # Save response
         random_id = random.randint(1000, 9999)
+        # Ensure we're using the absolute path for the audio file
         new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}.wav")
         
         # Make sure audio directory exists
@@ -173,6 +179,7 @@ def send_request(image_path):
                 os.fsync(af.fileno())
             
             print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
+            print(f"File exists check: {os.path.exists(new_audio_file)}")
             
             # Check for interruption after saving
             if check_for_interruption():
@@ -217,7 +224,31 @@ def send_request(image_path):
         
         # Use AudioManager instead of system call so we can interrupt it
         print(f"Playing response audio using AudioManager: {new_audio_file}")
+        
+        # Debug audio file before playing
+        if os.path.exists(new_audio_file):
+            print(f"CONFIRMED: Audio file exists: {new_audio_file} ({os.path.getsize(new_audio_file)} bytes)")
+            # Check if the file is readable
+            try:
+                with open(new_audio_file, 'rb') as test_f:
+                    header = test_f.read(12)
+                    print(f"Audio file header: {header}")
+            except Exception as e:
+                print(f"ERROR reading audio file: {e}")
+        else:
+            print(f"ERROR: Audio file does not exist: {new_audio_file}")
+            print(f"Looking in absolute path: {os.path.abspath(new_audio_file)}")
+            return  # Don't try to play if the file doesn't exist
+        
+        print("PLAYING NOW: Sending to audio manager...")
         audio_manager.send_command(AUDIO_CMD_PLAY, file_path=new_audio_file, volume=100)
+        
+        # Check if playing started
+        time.sleep(0.5)
+        if audio_manager.is_playing():
+            print("SUCCESS: Audio playback started")
+        else:
+            print("PROBLEM: Audio manager did not start playback")
 
     else:
         print(f"Server error: {response.status_code}, {response.text}")
