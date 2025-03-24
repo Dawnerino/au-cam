@@ -12,7 +12,8 @@ import time
 import threading
 import subprocess
 
-# We're using direct aplay commands now, no need for audio_manager
+# Import the AudioManager class
+from audio_manager import AudioManager
 
 # Serial Handling python Script
 import serialHandle
