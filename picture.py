@@ -257,6 +257,22 @@ def send_request(image_path):
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE)
                 print(f"DIRECT PLAY: Started aplay process, pid={proc.pid}")
+                
+                # Start a background thread to reset the playback flag when done
+                def monitor_playback():
+                    global in_playback_mode
+                    proc.wait()  # Wait for process to complete
+                    print("System audio playback completed naturally")
+                    audio_manager.is_audio_playing.clear()  # Clear the flag
+                    try:
+                        in_playback_mode = False  # Reset playback mode
+                    except NameError:
+                        pass  # In case flag not defined yet
+                
+                # Start the monitor thread
+                import threading
+                monitor_thread = threading.Thread(target=monitor_playback, daemon=True)
+                monitor_thread.start()
             except Exception as e:
                 print(f"ERROR starting direct playback: {e}")
         else:
@@ -291,6 +307,8 @@ def take_picture():
 
 def stop_process():
     """Triggered by STOP_PROCESS command."""
+    global in_playback_mode  # Will be defined in main_loop
+    
     interrupt_event.set()
     audio_manager.send_command(AUDIO_CMD_STOP)
     
@@ -304,19 +322,44 @@ def stop_process():
         print("Killed system audio processes")
     except Exception as e:
         print(f"Error stopping system audio: {e}")
+    
+    # Reset playback mode flag
+    try:
+        in_playback_mode = False
+    except NameError:
+        # In case this is called before main_loop defines the variable
+        pass
         
     print("Processes stopped.")
 
 def main_loop():
     print("🔄 Running command loop...")
+    
+    # Track if we're currently in audio playback mode
+    in_playback_mode = False
 
     while True:
+        # Check if playback has naturally ended
+        if in_playback_mode and not audio_manager.is_playing():
+            # Check if any aplay processes are still running
+            try:
+                import subprocess
+                result = subprocess.run(["pgrep", "-f", "aplay"], 
+                                      stdout=subprocess.PIPE, 
+                                      stderr=subprocess.PIPE)
+                if result.returncode != 0:  # No aplay processes found
+                    print("Audio playback has naturally completed")
+                    in_playback_mode = False
+            except Exception:
+                # If we can't check, assume it might have ended
+                pass
+                
         cmd = serialHandle.last_command
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
             
             # Check if audio is playing and stop it
-            if audio_manager.is_playing():
+            if audio_manager.is_playing() or in_playback_mode:
                 print("Cancelling audio playback")
                 audio_manager.send_command(AUDIO_CMD_STOP)
                 # Also kill any system audio processes
@@ -329,10 +372,18 @@ def main_loop():
                 except Exception as e:
                     print(f"Error stopping system audio: {e}")
                 time.sleep(0.2)  # Small delay to ensure audio stops
-            
-            # Always take a new picture when the button is pressed
-            print("Taking a new picture...")
-            take_picture()
+                
+                # Mark that we've left playback mode
+                in_playback_mode = False
+                
+                # Skip taking a picture since we're just stopping audio
+                print("Audio stopped - press button again to take a new picture")
+            else:
+                # Only take a picture if we're not in playback mode
+                print("Taking a new picture...")
+                take_picture()
+                # Set playback mode flag since we're starting a capture-to-response cycle
+                in_playback_mode = True
                 
         elif cmd == "STOP_PROCESS":
             serialHandle.last_command = None
