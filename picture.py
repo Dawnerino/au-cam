@@ -141,7 +141,7 @@ def send_request(image_path):
                 
                 # Check status code before downloading content
                 if response.status_code != 200:
-                    print(f"Server error: {response.status_code}, {response.text}")
+                    print(f"Server error: {response.status_code}")
                     return
                 
                 # We'll download the content in chunks while periodically checking for interruptions
@@ -161,18 +161,23 @@ def send_request(image_path):
                 # Combine all chunks to get full content
                 full_content = b''.join(content_chunks)
                 
-                # Create a new response-like object with the content
+                # Store the status code before we close the original response
+                status_code = response.status_code
+                
+                # Create a simple class that just has the content
                 class ResponseWrapper:
-                    def __init__(self, original_response, content):
-                        self.status_code = original_response.status_code
+                    def __init__(self, status_code, content):
+                        self.status_code = status_code
                         self.content = content
-                        self.text = original_response.text
                     
                     def close(self):
-                        original_response.close()
+                        pass  # Nothing to close, we already have the content
                 
-                # Replace the streaming response with our fully loaded one
-                response = ResponseWrapper(response, full_content)
+                # Close the original response
+                response.close()
+                
+                # Replace with our simple wrapper
+                response = ResponseWrapper(status_code, full_content)
                 
             except requests.RequestException as e:
                 print(f"Request error during streaming: {e}")
@@ -204,7 +209,7 @@ def send_request(image_path):
         # Check if response actually contains audio data
         if not response.content or len(response.content) < 100:
             print(f"WARNING: Empty or too small response from server: {len(response.content)} bytes")
-            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            audio_manager.play_error_sound()  # Play error sound
             return
             
         # Check for interruption before saving audio
@@ -295,7 +300,7 @@ def send_request(image_path):
             audio_manager.in_playback_mode = False
 
     else:
-        print(f"Server error: {response.status_code}, {response.text}")
+        print(f"Server error: {response.status_code}")
 
 def take_picture():
     """Triggered by TAKE_PICTURE command."""
