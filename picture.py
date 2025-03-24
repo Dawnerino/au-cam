@@ -102,19 +102,55 @@ def send_request(image_path):
 
     print(f"Sending image: {image_path} to {URL}")
     
-    # Play keyboard sound with loop flag
-    try:
-        # Use -q for quiet mode (no output)
-        keyboard_proc = subprocess.Popen(["aplay", "-q", "keyboard.wav"], 
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-        # Set flag so we can track it
-        audio_manager.is_audio_playing.set()
-        # Store process ID so we can check if it's still running
-        app_state.current_audio_pid = keyboard_proc.pid
-        print(f"Started keyboard sound, pid: {keyboard_proc.pid}")
-    except Exception as e:
-        print(f"Error playing keyboard sound: {e}")
+    # Set up a flag to control keyboard sound looping
+    keyboard_loop_active = threading.Event()
+    keyboard_loop_active.set()  # Start with active flag
+    
+    # Create a function to play keyboard sound in a loop
+    def keyboard_sound_loop():
+        while keyboard_loop_active.is_set():
+            try:
+                # Play keyboard sound once
+                kb_proc = subprocess.Popen(["aplay", "-q", "keyboard.wav"], 
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+                
+                # Store current PID in app state
+                app_state.current_audio_pid = kb_proc.pid
+                
+                # Set flag so we can track it
+                audio_manager.is_audio_playing.set()
+                
+                # Wait for this instance to complete
+                kb_proc.wait()
+                
+                # Only small delay between loops if still active
+                if keyboard_loop_active.is_set():
+                    time.sleep(0.1)
+            except Exception as e:
+                print(f"Error in keyboard sound loop: {e}")
+                time.sleep(0.5)  # Wait a bit before retrying
+    
+    # Start the keyboard sound loop in a background thread
+    keyboard_thread = threading.Thread(target=keyboard_sound_loop, daemon=True)
+    keyboard_thread.start()
+    print("Started keyboard sound loop in background")
+    
+    # Function to stop the keyboard sound when needed
+    def stop_keyboard_sound():
+        keyboard_loop_active.clear()  # Signal thread to stop looping
+        # Kill any existing keyboard process
+        try:
+            if app_state.current_audio_pid:
+                subprocess.run(["kill", str(app_state.current_audio_pid)], 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+            # Also try pkill to be thorough
+            subprocess.run(["pkill", "-f", "aplay"], 
+                          stdout=subprocess.PIPE, 
+                          stderr=subprocess.PIPE)
+        except Exception as e:
+            print(f"Error stopping keyboard sound: {e}")
     
     # Create a flag to track if we've been interrupted
     interrupted = False
@@ -125,26 +161,16 @@ def send_request(image_path):
         if serialHandle.last_command == "TAKE_PICTURE":
             print("Interrupt detected: cancelling request and audio")
             
-            # Kill any running audio directly
-            try:
-                if app_state.current_audio_pid:
-                    # Try to kill specific audio process first
-                    subprocess.run(["kill", str(app_state.current_audio_pid)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-                    print(f"Killed audio process with pid {app_state.current_audio_pid}")
-                
-                # Then kill all aplay processes to be safe
-                subprocess.run(["pkill", "-f", "aplay"],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-                print("Killed all aplay processes")
-                
-                # Clear flags
-                audio_manager.is_audio_playing.clear()
-                app_state.current_audio_pid = None
-            except Exception as e:
-                print(f"Error stopping audio: {e}")
+            # Stop keyboard sound loop
+            nonlocal keyboard_loop_active
+            keyboard_loop_active.clear()
+            
+            # Use our helper function to stop the keyboard sound
+            stop_keyboard_sound()
+            
+            # Clear flags
+            audio_manager.is_audio_playing.clear()
+            app_state.current_audio_pid = None
                 
             serialHandle.last_command = None
             nonlocal interrupted
@@ -178,11 +204,15 @@ def send_request(image_path):
 
     except requests.RequestException as e:
         print(f"Request failed: {e}")
-        audio_manager.send_command(AUDIO_CMD_STOP)
+        # Stop the keyboard sound loop
+        stop_keyboard_sound()
+        time.sleep(0.5)  # Wait for sound to fully stop
         return
 
     # After request finishes
-    audio_manager.send_command(AUDIO_CMD_STOP)  # stop the loop
+    print("Request completed, stopping keyboard sound")
+    # Stop the keyboard sound loop
+    stop_keyboard_sound()
     time.sleep(0.5)  # Wait longer to ensure complete stop
     
     # Check for interruption again after request finishes
