@@ -4,6 +4,7 @@ unsigned long simpleDelay = 0;
 int globalVibration = 0;
 int lastCommand;
 
+
 // ITERATE VIBRATION TO NOT LOCKUP SYSTEM WHEN STEPPING UP AND DOWN 03/12/25
 
 void checkButton() {
@@ -31,7 +32,7 @@ void checkSerialCommands() {
 
 void handleCommand(String command) {
     if (command == "FEEDBACK_VIBRATE") {
-        triggerVibration();
+        isVibrating = true;
         lastCommand = "FEEDBACK_VIBRATE";
     } else if (command == "STOP_VIBRATION") {
         stopVibration();
@@ -77,15 +78,30 @@ void setup() {
 void loop() {
     checkButton();
     checkSerialCommands();
-    /*
-    if (lastCommand == "FEEDBACK_VIBRATE"){
-      iteVibr();
-    };
-    
-    if (millis() - simpleDelay >= 8000) { // Update using millis() every 8 seconds
-      simpleDelay = millis();
-      Serial.println("ping..!");
+
+
+    // Handle ongoing vibration loop
+    if (isVibrating) {
+        unsigned long now = millis();
+        if (now - lastVibrateTime > 10) {  // update every 10ms
+            lastVibrateTime = now;
+
+            // Fade vibration up/down
+            if (fadeUp) {
+                vibrationStrength += 15;
+                if (vibrationStrength >= 255) {
+                    vibrationStrength = 255;
+                    fadeUp = false;
+                }
+            } else {
+                vibrationStrength -= 15;
+                if (vibrationStrength <= 0) {
+                    vibrationStrength = 0;
+                    fadeUp = true;
+                }
+            }
+            analogWrite(vibrationPin, vibrationStrength);
+        }
     }
-    */
     delay(5);
 }

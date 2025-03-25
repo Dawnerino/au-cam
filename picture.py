@@ -88,6 +88,31 @@ def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
         os.remove(oldest_file)
         print(f"Deleted old audio: {oldest_file}")
 
+def keep_last_10_photos(directory):
+    """Remove all files in the directory except the 10 most recently modified ones."""
+    try:
+        # Get list of all files with their full paths
+        full_paths = [
+            os.path.join(directory, f)
+            for f in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, f))
+        ]
+
+        # Sort files by last modified time (most recent last)
+        sorted_files = sorted(full_paths, key=os.path.getmtime)
+
+        # Keep only the last 10
+        files_to_delete = sorted_files[:-10]
+
+        for file_path in files_to_delete:
+            os.remove(file_path)
+            print(f"Removed: {file_path}")
+
+        print(f"Kept last 10 files in: {directory}")
+
+    except Exception as e:
+        print(f"Error cleaning up photos: {e}")
+
 def send_request(image_path):
     """Sends the image to the server, loops keyboard, stops, then plays response."""
     if not image_path:
@@ -142,6 +167,9 @@ def send_request(image_path):
                 # Check status code before downloading content
                 if response.status_code != 200:
                     print(f"Server error: {response.status_code}")
+                    # Play error sound
+                    audio_manager.stop_all_audio()  # Stop keyboard sound
+                    audio_manager.play_error_sound()
                     return
                 
                 # We'll download the content in chunks while periodically checking for interruptions
@@ -309,6 +337,9 @@ def send_request(image_path):
 
     else:
         print(f"Server error: {response.status_code}")
+        # Play error sound
+        audio_manager.play_error_sound()
+    keep_last_10_photos(ORIGINALS_DIR);
 
 def take_picture():
     """Triggered by TAKE_PICTURE command."""
