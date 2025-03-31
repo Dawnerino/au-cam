@@ -79,9 +79,10 @@ def capture_image():
     return image_path
 
 def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
-    """Keeps only last `max_files` .wav files, removes old ones."""
+    """Keeps only last `max_files` audio files (.wav or .mp3), removes old ones."""
     audio_files = sorted(
-        (os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".wav")),
+        (os.path.join(directory, f) for f in os.listdir(directory) 
+         if f.lower().endswith((".wav", ".mp3"))),
         key=os.path.getmtime
     )
     while len(audio_files) > max_files:
@@ -246,11 +247,14 @@ def send_request(image_path):
             print("Interrupted: skipping audio save and playback")
             return
             
-        # Check if response is actually a WAV file (should start with RIFF header)
-        if not response.content.startswith(b'RIFF'):
-            print(f"WARNING: Response is not a valid WAV file (no RIFF header)")
+        # Check if response is a valid audio file (MP3 or WAV)
+        is_wav = response.content.startswith(b'RIFF')
+        is_mp3 = response.content.startswith(b'\xff\xfb') or response.content.startswith(b'ID3')
+        
+        if not (is_wav or is_mp3):
+            print(f"WARNING: Response is not a valid audio file (WAV or MP3)")
             print(f"First 20 bytes of response: {response.content[:20]}")
-            audio_manager.send_command(AUDIO_CMD_PLAY, file_path="ahh.wav", volume=100)  # Play error sound
+            audio_manager.play_error_sound()  # Play error sound
             return
             
         # Check for interruption before saving audio
@@ -258,10 +262,12 @@ def send_request(image_path):
             print("Interrupted: skipping audio save and playback")
             return
             
-        # Save response
+        # Save response with appropriate extension
         random_id = random.randint(1000, 9999)
+        # Determine file extension based on content
+        extension = ".wav" if is_wav else ".mp3" if is_mp3 else ".wav"
         # Ensure we're using the absolute path for the audio file
-        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}.wav")
+        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}{extension}")
         
         # Make sure audio directory exists
         os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -280,12 +286,17 @@ def send_request(image_path):
                 print("Interrupted after saving: skipping validation and playback")
                 return
             
-            # Check if audio file was correctly saved and is a valid WAV
+            # Check if audio file was correctly saved and has valid header
             if os.path.exists(new_audio_file):
                 with open(new_audio_file, "rb") as test_f:
-                    header = test_f.read(12)  # Read RIFF header
-                    if not header.startswith(b'RIFF'):
-                        print(f"WARNING: Saved file does not have a valid WAV header")
+                    header = test_f.read(12)  # Read file header
+                    if extension == ".wav" and not header.startswith(b'RIFF'):
+                        print(f"WARNING: Saved WAV file has invalid header")
+                        # Play error sound
+                        audio_manager.play_error_sound()
+                        return
+                    elif extension == ".mp3" and not (header.startswith(b'\xff\xfb') or header.startswith(b'ID3')):
+                        print(f"WARNING: Saved MP3 file has invalid header")
                         # Play error sound
                         audio_manager.play_error_sound()
                         return
