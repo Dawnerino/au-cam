@@ -40,6 +40,7 @@ print(f"Absolute path to AUDIO_DIR: {AUDIO_DIR}")
 
 # Global Vars
 Volume = 100
+wordiness = 200
 interrupt_event = threading.Event()
 
 # Global state object for tracking playback
@@ -147,7 +148,7 @@ def send_request(image_path):
         # Set up the request but don't send it yet
         with open(image_path, "rb") as f:
             files = {"image": f}
-            
+            data = {"max_words": wordiness}
             # Check for interruption before sending
             if check_for_interruption():
                 return
@@ -162,7 +163,7 @@ def send_request(image_path):
             # Create a streaming request that can be interrupted
             try:
                 # Start the request with stream=True so we can monitor for interruptions
-                response = requests.post(URL, files=files, timeout=120, stream=True)
+                response = requests.post(URL, files=files, data=data, timeout=120, stream=True)
                 
                 # Check status code before downloading content
                 if response.status_code != 200:
