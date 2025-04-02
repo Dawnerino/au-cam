@@ -79,10 +79,10 @@ def capture_image():
     return image_path
 
 def manage_audio_files(directory, max_files=MAX_AUDIO_FILES):
-    """Keeps only last `max_files` audio files (.wav or .mp3), removes old ones."""
+    """Keeps only last `max_files` audio files (.wav), removes old ones."""
     audio_files = sorted(
         (os.path.join(directory, f) for f in os.listdir(directory) 
-         if f.lower().endswith((".wav", ".mp3"))),
+         if f.lower().endswith(".wav")),
         key=os.path.getmtime
     )
     while len(audio_files) > max_files:
@@ -247,12 +247,11 @@ def send_request(image_path):
             print("Interrupted: skipping audio save and playback")
             return
             
-        # Check if response is a valid audio file (MP3 or WAV)
+        # Check if response is a valid WAV file
         is_wav = response.content.startswith(b'RIFF')
-        is_mp3 = response.content.startswith(b'\xff\xfb') or response.content.startswith(b'ID3')
         
-        if not (is_wav or is_mp3):
-            print(f"WARNING: Response is not a valid audio file (WAV or MP3)")
+        if not is_wav:
+            print(f"WARNING: Response is not a valid WAV file")
             print(f"First 20 bytes of response: {response.content[:20]}")
             audio_manager.play_error_sound()  # Play error sound
             return
@@ -264,8 +263,8 @@ def send_request(image_path):
             
         # Save response with appropriate extension
         random_id = random.randint(1000, 9999)
-        # Determine file extension based on content
-        extension = ".wav" if is_wav else ".mp3" if is_mp3 else ".wav"
+        # Always use .wav extension
+        extension = ".wav"
         # Ensure we're using the absolute path for the audio file
         new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}{extension}")
         
@@ -290,13 +289,8 @@ def send_request(image_path):
             if os.path.exists(new_audio_file):
                 with open(new_audio_file, "rb") as test_f:
                     header = test_f.read(12)  # Read file header
-                    if extension == ".wav" and not header.startswith(b'RIFF'):
+                    if not header.startswith(b'RIFF'):
                         print(f"WARNING: Saved WAV file has invalid header")
-                        # Play error sound
-                        audio_manager.play_error_sound()
-                        return
-                    elif extension == ".mp3" and not (header.startswith(b'\xff\xfb') or header.startswith(b'ID3')):
-                        print(f"WARNING: Saved MP3 file has invalid header")
                         # Play error sound
                         audio_manager.play_error_sound()
                         return
