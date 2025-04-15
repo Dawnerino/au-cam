@@ -37,7 +37,7 @@ void handleCommand(String command) {
     } else if (command == "STOP_VIBRATION") {
         stopVibration();
     } else {
-        Serial.print("UNKNOWN_COMMAND: ");
+        Serial.print("ARDUINO ERR: UNKNOWN_COMMAND: ");
         Serial.println(command);
     }
 }

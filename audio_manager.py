@@ -20,13 +20,17 @@ class AudioManager:
         self.loop_active = threading.Event()
         self.loop_thread = None
         
-        # Check if aplay is available
-        self.has_aplay = self._command_exists("aplay")
+        # Check available audio players
+        self.has_aplay = self._command_exists("aplay")  # For WAV files
+        self.has_mpg123 = self._command_exists("mpg123")  # For MP3 files
+        
+        # Flag to indicate if MP3 playback is supported
+        self.can_play_mp3 = self.has_mpg123
         
         # Log available players
-        print(f"Audio player available - aplay: {self.has_aplay}")
+        print(f"Audio players available - aplay: {self.has_aplay}, mpg123: {self.has_mpg123}")
         
-        if not self.has_aplay:
+        if not (self.has_aplay or self.has_mpg123):
             print("WARNING: No supported audio player found!")
             
     def _command_exists(self, cmd):
@@ -43,7 +47,7 @@ class AudioManager:
         """Play a sound file once.
         
         Args:
-            file_path: Path to WAV audio file
+            file_path: Path to audio file (WAV or MP3)
             volume: Volume 0-100
             callback: Optional function to call when playback completes
         """
@@ -55,16 +59,29 @@ class AudioManager:
             return False
             
         try:
-            if not file_path.lower().endswith(".wav"):
-                print(f"ERROR: Only WAV files are supported: {file_path}")
-                return False
+            # Check file type and select appropriate player
+            file_ext = os.path.splitext(file_path.lower())[1]
+            
+            if file_ext == '.wav':
+                if not self.has_aplay:
+                    print("ERROR: No WAV player (aplay) available")
+                    return False
+                    
+                player_cmd = ["aplay", file_path]
                 
-            if not self.has_aplay:
-                print("ERROR: No WAV player available")
+            elif file_ext == '.mp3':
+                if not self.has_mpg123:
+                    print("ERROR: No MP3 player (mpg123) available")
+                    return False
+                    
+                player_cmd = ["mpg123", "-q", file_path]  # -q for quiet mode
+                
+            else:
+                print(f"ERROR: Unsupported file format: {file_ext}")
                 return False
                 
             print(f"Playing sound: {file_path}")
-            proc = subprocess.Popen(["aplay", file_path], 
+            proc = subprocess.Popen(player_cmd, 
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
             
@@ -108,12 +125,25 @@ class AudioManager:
             print(f"ERROR: Audio file not found: {file_path}")
             return False
         
-        if not file_path.lower().endswith(".wav"):
-            print(f"ERROR: Only WAV files are supported: {file_path}")
-            return False
+        # Check file type and select appropriate player
+        file_ext = os.path.splitext(file_path.lower())[1]
+        
+        if file_ext == '.wav':
+            if not self.has_aplay:
+                print("ERROR: No WAV player (aplay) available")
+                return False
+                
+            player_cmd = ["aplay", file_path]
             
-        if not self.has_aplay:
-            print("ERROR: No WAV player available")
+        elif file_ext == '.mp3':
+            if not self.has_mpg123:
+                print("ERROR: No MP3 player (mpg123) available")
+                return False
+                
+            player_cmd = ["mpg123", "-q", file_path]  # -q for quiet mode
+            
+        else:
+            print(f"ERROR: Unsupported file format: {file_ext}")
             return False
             
         # Set up loop control
@@ -125,7 +155,7 @@ class AudioManager:
             while self.loop_active.is_set():
                 try:
                     # Play the sound once
-                    proc = subprocess.Popen(["aplay", file_path], 
+                    proc = subprocess.Popen(player_cmd, 
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE)
                     
@@ -166,13 +196,22 @@ class AudioManager:
             except Exception as e:
                 print(f"Error killing process {self.current_audio_pid}: {e}")
         
-        # Kill all aplay instances to be thorough
+        # Kill all audio player instances to be thorough
         try:
-            subprocess.run(["pkill", "-f", "aplay"], 
-                          stdout=subprocess.PIPE, 
-                          stderr=subprocess.PIPE)
+            # Kill WAV players
+            if self.has_aplay:
+                subprocess.run(["pkill", "-f", "aplay"], 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+                
+            # Kill MP3 players
+            if self.has_mpg123:
+                subprocess.run(["pkill", "-f", "mpg123"], 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+                
         except Exception as e:
-            print(f"Error killing aplay processes: {e}")
+            print(f"Error killing audio processes: {e}")
             
         # Reset state
         self.is_audio_playing.clear()
