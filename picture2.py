@@ -262,15 +262,16 @@ def send_request(image_path):
             # Create the final WAV file name
             final_wav = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
             
-            # Use OpenAI's Text-to-Speech API (using the same client already created)
-            speech_response = client.audio.speech.create(
+            # Use OpenAI's Text-to-Speech API with proper streaming
+            with client.audio.speech.with_streaming_response.create(
                 model="tts-1", # You can also use "tts-1-hd" for higher quality
                 voice="nova",  # Options: "alloy", "echo", "fable", "onyx", "nova", "shimmer"
                 input=generated_text,
-            )
-            
-            # Save the binary audio content to a temporary file
-            speech_response.stream_to_file(final_wav)
+            ) as response:
+                # Stream the response to a file
+                with open(final_wav, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
             
             # Optimize the WAV file if needed using pydub
             try:
