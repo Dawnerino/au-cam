@@ -13,8 +13,6 @@ import threading
 import subprocess
 import io
 import openai
-from gtts import gTTS
-import tempfile
 from pydub import AudioSegment
 
 # Import the AudioManager class
@@ -259,42 +257,41 @@ def send_request(image_path):
         if check_for_interruption():
             return
             
-        # Step 3: Convert text to speech using Google TTS
+        # Step 3: Convert text to speech using OpenAI TTS
         try:
-            # Check if AudioManager can handle MP3 files directly
-            if hasattr(audio_manager, 'can_play_mp3') and audio_manager.can_play_mp3:
-                # Create MP3 file directly
-                mp3_filename = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.mp3")
-                tts = gTTS(text=generated_text, lang='en', slow=False)
-                tts.save(mp3_filename)
-                final_audio = mp3_filename
-                print(f"Created MP3 audio file: {mp3_filename}")
-            else:
-                # Fallback to WAV conversion if MP3 not supported
-                # Use gTTS to convert text to speech
-                tts = gTTS(text=generated_text, lang='en', slow=False)
+            # Create the final WAV file name
+            final_wav = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
+            
+            # Use OpenAI's Text-to-Speech API (using the same client already created)
+            speech_response = client.audio.speech.create(
+                model="tts-1", # You can also use "tts-1-hd" for higher quality
+                voice="nova",  # Options: "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+                input=generated_text,
+            )
+            
+            # Save the binary audio content to a temporary file
+            speech_response.stream_to_file(final_wav)
+            
+            # Optimize the WAV file if needed using pydub
+            try:
+                # Load and optimize the audio
+                audio = AudioSegment.from_file(final_wav)
                 
-                # Create temporary MP3 file
-                temp_mp3 = os.path.join(AUDIO_DIR, "temp_speech.mp3")
-                tts.save(temp_mp3)
-                
-                # Convert MP3 to WAV using pydub
-                audio = AudioSegment.from_mp3(temp_mp3)
-                
-                # Create final optimized WAV
-                final_wav = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
-                
-                # Convert to smaller WAV directly when exporting from MP3
+                # Convert to smaller WAV with optimized settings
                 audio = audio.set_frame_rate(22050).set_channels(1).set_sample_width(2)
-                audio.export(final_wav, format="wav")
                 
-                # Clean up temporary file
-                os.remove(temp_mp3)
-                final_audio = final_wav
-                print(f"Created WAV audio file: {final_wav}")
+                # Save the optimized version back to the same file
+                audio.export(final_wav, format="wav")
+                print(f"Optimized WAV file: {final_wav}")
+            except Exception as e:
+                print(f"Warning: Could not optimize WAV file, using original: {e}")
+                # Continue with the original file since it should still work
+            
+            final_audio = final_wav
+            print(f"Created WAV audio file using OpenAI TTS: {final_wav}")
             
         except Exception as e:
-            print(f"Error generating speech with Google TTS: {e}")
+            print(f"Error generating speech with OpenAI TTS: {e}")
             audio_manager.stop_all_audio()
             audio_manager.play_error_sound()
             return
