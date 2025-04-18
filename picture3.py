@@ -509,11 +509,11 @@ def main_loop():
             enter_playback_mode()
             
         elif cmd == "WORD_CNT":
-            serialHandle.last_command = None
+            serialHandle.last_command = None 
             # Toggle between wordiness levels
             global wordiness
             if wordiness == 50:
-                wordiness == 100
+                wordiness = 100
             elif wordiness == 100:
                 wordiness = 200
             elif wordiness == 200:
