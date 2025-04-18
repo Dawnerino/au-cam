@@ -1,6 +1,5 @@
 ###################################
-# picture3.py (BACKUP SCRIPT THAT RUNS ALL SERVER LOGIC LOCALLY)
-# Uses pyttsx3 for offline text-to-speech
+# picture.py (BACKUP SCRIPT THAT RUNS ALL SERVER LOGIC LOCALLY)
 ###################################
 from dotenv import load_dotenv
 import os
@@ -14,8 +13,6 @@ import threading
 import subprocess
 import io
 import openai
-import pyttsx3
-import tempfile
 from pydub import AudioSegment
 
 # Import the AudioManager class
@@ -58,8 +55,10 @@ interrupt_event = threading.Event()
 class State:
     def __init__(self):
         self.in_playback_mode = False  # True when in a capture-to-response cycle
+        self.in_audio_playback_mode = False  # True when in audio playback mode (navigating recordings)
         self.current_audio_pid = None  # Current audio process PID
         self.is_audio_playing = threading.Event()  # Flag to track if audio is playing
+        self.current_playback_index = 0  # Index of current audio file during playback navigation
         
 app_state = State()
 
@@ -69,9 +68,6 @@ for directory in [ORIGINALS_DIR, RESIZED_DIR, AUDIO_DIR]:
 
 # Create the AudioManager instance
 audio_manager = AudioManager()
-
-# Initialize pyttsx3 engine
-tts_engine = pyttsx3.init()
 
 def capture_image():
     # Clear last command
@@ -143,22 +139,23 @@ def resize_image(image):
 
     return image.resize((new_width, new_height), Image.LANCZOS)
 
-def text_to_speech(text, output_file):
-    """Convert text to speech using pyttsx3 and save to a WAV file."""
-    print(f"Converting text to speech using pyttsx3...")
-    
-    try:
-        # Save speech to file
-        tts_engine.save_to_file(text, output_file)
-        tts_engine.runAndWait()
-        print(f"Created WAV audio file: {output_file}")
-        return output_file
-    except Exception as e:
-        print(f"Error generating speech with pyttsx3: {e}")
-        return None
+def convert_to_small_wav(input_file, output_file):
+    """Convert any WAV to a smaller PCM WAV format."""
+    print(f"Converting {input_file} to a smaller WAV...")
+
+    # Detect format automatically
+    audio = AudioSegment.from_file(input_file, format="wav")  # Auto-detects compressed WAV
+
+    # Reduce sample rate to 22050 Hz, convert to mono, reduce bit depth
+    audio = audio.set_frame_rate(22050).set_channels(1).set_sample_width(2)
+
+    # Export to WAV
+    audio.export(output_file, format="wav")
+    print(f"Converted to smaller WAV: {output_file}")
+    return output_file
 
 def send_request(image_path):
-    """Performs all processing locally: resizes image, uses OpenAI to analyze, and pyttsx3 for speech."""
+    """Performs all processing locally: resizes image, uses OpenAI to analyze, and Google TTS for speech."""
     if not image_path:
         print("No image to send, skipping.")
         return
@@ -262,17 +259,42 @@ def send_request(image_path):
         if check_for_interruption():
             return
             
-        # Step 3: Convert text to speech using pyttsx3
+        # Step 3: Convert text to speech using OpenAI TTS
         try:
-            # Create WAV file with pyttsx3
+            # Create the final WAV file name
             final_wav = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
-            final_audio = text_to_speech(generated_text, final_wav)
             
-            if not final_audio:
-                raise Exception("Failed to create audio file with pyttsx3")
+            # Use OpenAI's Text-to-Speech API with proper streaming
+            with client.audio.speech.with_streaming_response.create(
+                model="tts-1", # You can also use "tts-1-hd" for higher quality
+                voice="nova",  # Options: "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+                input=generated_text,
+            ) as response:
+                # Stream the response to a file
+                with open(final_wav, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+            
+            # Optimize the WAV file if needed using pydub
+            try:
+                # Load and optimize the audio
+                audio = AudioSegment.from_file(final_wav)
+                
+                # Convert to smaller WAV with optimized settings
+                audio = audio.set_frame_rate(22050).set_channels(1).set_sample_width(2)
+                
+                # Save the optimized version back to the same file
+                audio.export(final_wav, format="wav")
+                print(f"Optimized WAV file: {final_wav}")
+            except Exception as e:
+                print(f"Warning: Could not optimize WAV file, using original: {e}")
+                # Continue with the original file since it should still work
+            
+            final_audio = final_wav
+            print(f"Created WAV audio file using OpenAI TTS: {final_wav}")
             
         except Exception as e:
-            print(f"Error generating speech: {e}")
+            print(f"Error generating speech with OpenAI TTS: {e}")
             audio_manager.stop_all_audio()
             audio_manager.play_error_sound()
             return
@@ -360,11 +382,96 @@ def stop_process():
         
     print("Processes stopped.")
 
+def get_sorted_audio_files():
+    """Returns a list of audio files in the AUDIO_DIR sorted by modification time (newest first)."""
+    audio_files = []
+    try:
+        for file in os.listdir(AUDIO_DIR):
+            if file.lower().endswith('.wav') and 'response_' in file:
+                file_path = os.path.join(AUDIO_DIR, file)
+                audio_files.append(file_path)
+        
+        # Sort by modification time (newest first)
+        audio_files.sort(key=os.path.getmtime, reverse=True)
+        return audio_files
+    except Exception as e:
+        print(f"Error getting audio files: {e}")
+        return []
+
+def enter_playback_mode():
+    """Enter audio file playback navigation mode."""
+    print("Entering audio playback mode...")
+    app_state.in_audio_playback_mode = True
+    
+    # Get sorted list of audio files
+    audio_files = get_sorted_audio_files()
+    
+    if not audio_files:
+        print("No audio files found to play back")
+        audio_manager.play_error_sound()
+        app_state.in_audio_playback_mode = False
+        serialHandle.send_serial_command("READY")
+        return False
+    
+    # Reset playback index
+    app_state.current_playback_index = 0
+    
+    # Play the first file
+    if audio_files:
+        print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {audio_files[0]}")
+        audio_manager.play_sound(audio_files[0])
+        return True
+    return False
+
+def handle_playback_navigation(direction):
+    """Handle navigation within playback mode (NEXT or PREV commands)."""
+    audio_files = get_sorted_audio_files()
+    
+    if not audio_files:
+        print("No audio files available")
+        audio_manager.play_error_sound()
+        return
+    
+    # Update the index based on the direction
+    if direction == "NEXT":
+        app_state.current_playback_index = (app_state.current_playback_index + 1) % len(audio_files)
+    elif direction == "PREV":
+        app_state.current_playback_index = (app_state.current_playback_index - 1) % len(audio_files)
+    
+    # Play the selected file
+    file_to_play = audio_files[app_state.current_playback_index]
+    print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {file_to_play}")
+    audio_manager.play_sound(file_to_play)
+
+def exit_playback_mode():
+    """Exit audio file playback navigation mode."""
+    print("Exiting audio playback mode...")
+    app_state.in_audio_playback_mode = False
+    audio_manager.stop_all_audio()
+    serialHandle.send_serial_command("READY")
+
 def main_loop():
     print("🔄 Running command loop...")
 
     while True:
         cmd = serialHandle.last_command
+        
+        # Handle playback mode differently
+        if app_state.in_audio_playback_mode:
+            if cmd == "TAKE_PICTURE":
+                # In playback mode, shutter button exits playback
+                serialHandle.last_command = None
+                exit_playback_mode()
+            elif cmd == "NEXT":
+                serialHandle.last_command = None
+                handle_playback_navigation("NEXT")
+            elif cmd == "PREV":
+                serialHandle.last_command = None
+                handle_playback_navigation("PREV")
+            time.sleep(0.1)
+            continue  # Skip the rest of the loop and restart
+            
+        # Handle normal mode commands
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
             
@@ -396,6 +503,23 @@ def main_loop():
         elif cmd == "DECREASE_VOLUME":
             serialHandle.last_command = None
             print("🔉 Decrease volume... (not implemented)")
+            
+        elif cmd == "PLAY_BACK":
+            serialHandle.last_command = None
+            enter_playback_mode()
+            
+        elif cmd == "WORD_CNT":
+            serialHandle.last_command = None
+            # Toggle between wordiness levels
+            global wordiness
+            if wordiness == 100:
+                wordiness = 200
+            elif wordiness == 200:
+                wordiness = 300
+            else:
+                wordiness = 100
+            print(f"Set wordiness to: {wordiness}")
+            serialHandle.send_serial_command(f"WORDINESS_{wordiness}")
             
         time.sleep(0.1)
 
