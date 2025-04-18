@@ -512,12 +512,14 @@ def main_loop():
             serialHandle.last_command = None
             # Toggle between wordiness levels
             global wordiness
-            if wordiness == 100:
+            if wordiness == 50:
+                wordiness == 100
+            elif wordiness == 100:
                 wordiness = 200
             elif wordiness == 200:
-                wordiness = 300
+                wordiness = 500
             else:
-                wordiness = 100
+                wordiness = 50
             print(f"Set wordiness to: {wordiness}")
             serialHandle.send_serial_command(f"WORDINESS_{wordiness}")
             
