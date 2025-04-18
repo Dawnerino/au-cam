@@ -518,6 +518,8 @@ def main_loop():
                 wordiness = 200
             elif wordiness == 200:
                 wordiness = 500
+            elif wordiness == 500:
+                wordiness = 1000
             else:
                 wordiness = 50
             print(f"Set wordiness to: {wordiness}")
