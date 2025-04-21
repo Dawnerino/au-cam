@@ -81,7 +81,7 @@ def capture_image():
     Image.fromarray(frame).save(image_path)
     
     # Play shutter sound
-    audio_manager.play_sound("tempclick.wav")
+    audio_manager.play_sound("tempclick.wav", 88)
 
     print(f"Captured image: {image_path}")
     serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Vibrate on Arduino
@@ -163,7 +163,7 @@ def send_request(image_path):
     print(f"Processing image: {image_path}")
     
     # Start loading sound loop using AudioManager
-    audio_manager.loop_sound("sys_aud/loading.wav")
+    audio_manager.loop_sound("sys_aud/loading.wav",80)
     print("Started loading sound loop in background")
     
     # Create a flag to track if we've been interrupted
@@ -341,7 +341,7 @@ def send_request(image_path):
     # Let AudioManager handle all the details
     audio_manager.in_playback_mode = True  # Mark that we're in playback mode
     
-    if audio_manager.play_sound(final_audio, callback=on_audio_complete):
+    if audio_manager.play_sound(final_audio, 87, callback=on_audio_complete):
         print("SUCCESS: Response audio playback started")
     else:
         print("ERROR: Failed to start response audio playback")
@@ -419,7 +419,7 @@ def enter_playback_mode():
     # Play the first file
     if audio_files:
         print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {audio_files[0]}")
-        audio_manager.play_sound(audio_files[0])
+        audio_manager.play_sound(audio_files[0],87)
         return True
     return False
 
@@ -441,7 +441,7 @@ def handle_playback_navigation(direction):
     # Play the selected file
     file_to_play = audio_files[app_state.current_playback_index]
     print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {file_to_play}")
-    audio_manager.play_sound(file_to_play)
+    audio_manager.play_sound(file_to_play, 87)
 
 def exit_playback_mode():
     """Exit audio file playback navigation mode."""
