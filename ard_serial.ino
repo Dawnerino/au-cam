@@ -1,8 +1,19 @@
+// pins
 const int buttonPin = 2;
-const int vibrationPin = 5;
+const int vibrationPin = 3;
+const int playBackPin = 6;
+const int prevPin = 5;
+const int nextPin = 7;
+const int wordCntPin = 4;
+
+// global vars
 unsigned long simpleDelay = 0;
 int globalVibration = 0;
-int lastCommand;
+bool isVibrating = false;
+unsigned long lastVibrateTime = 0;
+int vibrationStrength = 0;
+bool fadeUp = true;
+String lastCommand = "";
 
 
 // ITERATE VIBRATION TO NOT LOCKUP SYSTEM WHEN STEPPING UP AND DOWN 03/12/25
@@ -21,11 +32,57 @@ void checkButton() {
     lastButtonState = buttonState;
 }
 
+void checkDigitalPins() {
+    static bool lastPlayBackState = HIGH;
+    static bool lastPrevState = HIGH;
+    static bool lastNextState = HIGH;
+    static bool lastWordCntState = HIGH;
+
+    // Check pin 4 - PLAY_BACK
+    bool playBackState = digitalRead(playBackPin);
+    if (playBackState == LOW && lastPlayBackState == HIGH) {
+        delay(10);  // Short debounce
+        if (digitalRead(playBackPin) == LOW) {
+            sendCommand("PLAY_BACK");
+        }
+    }
+    lastPlayBackState = playBackState;
+    
+    // Check pin 5 - PREV
+    bool prevState = digitalRead(prevPin);
+    if (prevState == LOW && lastPrevState == HIGH) {
+        delay(10);  // Short debounce
+        if (digitalRead(prevPin) == LOW) {
+            sendCommand("PREV");
+        }
+    }
+    lastPrevState = prevState;
+    
+    // Check pin 6 - NEXT
+    bool nextState = digitalRead(nextPin);
+    if (nextState == LOW && lastNextState == HIGH) {
+        delay(10);  // Short debounce
+        if (digitalRead(nextPin) == LOW) { 
+            sendCommand("NEXT");
+        }
+    }
+    lastNextState = nextState;
+    
+    // Check pin 7 - WORD_CNT
+    bool wordCntState = digitalRead(wordCntPin);
+    if (wordCntState == LOW && lastWordCntState == HIGH) {
+        delay(10);  // Short debounce
+        if (digitalRead(wordCntPin) == LOW) {
+            sendCommand("WORD_CNT");
+        }
+    }
+    lastWordCntState = wordCntState;
+}
+
 void checkSerialCommands() {
     if (Serial.available()) {
         String command = Serial.readStringUntil('\n');
         command.trim();
-        Serial.println(command);
         handleCommand(command);
     }
 }
@@ -37,7 +94,7 @@ void handleCommand(String command) {
     } else if (command == "STOP_VIBRATION") {
         stopVibration();
     } else {
-        Serial.print("ARDUINO ERR: UNKNOWN_COMMAND: ");
+        Serial.print("UNKNOWN_COMMAND: ");
         Serial.println(command);
     }
 }
@@ -58,6 +115,7 @@ void triggerVibration() {
 
 void stopVibration() {
     analogWrite(vibrationPin, 0);
+    isVibrating = false;
 }
 
 // ::::    ::::      :::     ::::::::::: ::::    :::
@@ -72,13 +130,17 @@ void setup() {
     Serial.begin(19200);
     pinMode(buttonPin, INPUT_PULLUP);
     pinMode(vibrationPin, OUTPUT);
+    pinMode(playBackPin, INPUT_PULLUP);
+    pinMode(prevPin, INPUT_PULLUP);
+    pinMode(nextPin, INPUT_PULLUP);
+    pinMode(wordCntPin, INPUT_PULLUP);
     stopVibration();
 }
 
 void loop() {
     checkButton();
+    checkDigitalPins();
     checkSerialCommands();
-
 
     // Handle ongoing vibration loop
     if (isVibrating) {

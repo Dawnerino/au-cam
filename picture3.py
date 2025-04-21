@@ -1,5 +1,5 @@
 ###################################
-# picture.py (BACKUP SCRIPT THAT RUNS ALL SERVER LOGIC LOCALLY)
+# picture.py (RUNS ALL LOGIC LOCALLY)
 ###################################
 from dotenv import load_dotenv
 import os
@@ -162,9 +162,9 @@ def send_request(image_path):
 
     print(f"Processing image: {image_path}")
     
-    # Start keyboard sound loop using AudioManager
-    audio_manager.loop_sound("keyboard.wav")
-    print("Started keyboard sound loop in background")
+    # Start loading sound loop using AudioManager
+    audio_manager.loop_sound("sys_aud/loading.wav")
+    print("Started loading sound loop in background")
     
     # Create a flag to track if we've been interrupted
     interrupted = False
@@ -306,7 +306,7 @@ def send_request(image_path):
         return
 
     # After all processing finishes
-    print("Processing completed, stopping keyboard sound")
+    print("Processing completed, stopping loading sound")
     audio_manager.stop_all_audio()
     
     # Check for interruption again after processing

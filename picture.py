@@ -1,5 +1,5 @@
 ###################################
-# picture.py (Main Script)
+# picture.py (RUNS LOGIC REMOTELY)
 ###################################
 from dotenv import load_dotenv
 import os
