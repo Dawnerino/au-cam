@@ -28,8 +28,6 @@ load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_KEY")
 openai.api_key = OPENAI_API_KEY
 
-print(OPENAI_API_KEY)
-
 # Camera Object
 picam2 = Picamera2()
 config = picam2.create_still_configuration(main={"size": (480, 270)})
