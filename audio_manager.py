@@ -43,6 +43,24 @@ class AudioManager:
         except:
             return False
 
+    def _set_volume(self, volume):
+        """Set system volume using amixer (0-100)"""
+        try:
+            # Ensure volume is within valid range
+            volume = max(0, min(100, volume))
+            
+            # Set volume using amixer (for Raspberry Pi)
+            subprocess.run(
+                ["amixer", "sset", "SoftMaster", f"{volume}%"], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE
+            )
+            print(f"Volume set to {volume}%")
+            return True
+        except Exception as e:
+            print(f"Error setting volume: {e}")
+            return False
+            
     def play_sound(self, file_path, volume=100, callback=None):
         """Play a sound file once.
         
@@ -53,6 +71,9 @@ class AudioManager:
         """
         # First stop any playing sounds
         self.stop_all_audio()
+        
+        # Set volume
+        self._set_volume(volume)
         
         if not os.path.exists(file_path):
             print(f"ERROR: Audio file not found: {file_path}")
@@ -80,7 +101,7 @@ class AudioManager:
                 print(f"ERROR: Unsupported file format: {file_ext}")
                 return False
                 
-            print(f"Playing sound: {file_path}")
+            print(f"Playing sound: {file_path} at volume {volume}%")
             proc = subprocess.Popen(player_cmd, 
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
@@ -121,6 +142,9 @@ class AudioManager:
         # First stop any playing sounds
         self.stop_all_audio()
         
+        # Set volume
+        self._set_volume(volume)
+        
         if not os.path.exists(file_path):
             print(f"ERROR: Audio file not found: {file_path}")
             return False
@@ -151,7 +175,7 @@ class AudioManager:
         
         # Define the loop function
         def sound_loop():
-            print(f"Starting sound loop for {file_path}")
+            print(f"Starting sound loop for {file_path} at volume {volume}%")
             while self.loop_active.is_set():
                 try:
                     # Play the sound once
