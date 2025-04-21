@@ -1,5 +1,5 @@
 ###################################
-# picture.py (RUNS LOGIC REMOTELY)
+# picture.py (RUNS ALL LOGIC LOCALLY)
 ###################################
 from dotenv import load_dotenv
 import os
@@ -11,6 +11,9 @@ from picamera2 import Picamera2
 import time
 import threading
 import subprocess
+import io
+import openai
+from pydub import AudioSegment
 
 # Import the AudioManager class
 from audio_manager import AudioManager
@@ -20,6 +23,12 @@ import serialHandle
 
 # Load environment variables
 load_dotenv()
+
+# Set OpenAI API key
+OPENAI_API_KEY = os.environ.get("OPENAI_KEY")
+openai.api_key = OPENAI_API_KEY
+
+print(OPENAI_API_KEY)
 
 # Camera Object
 picam2 = Picamera2()
@@ -31,7 +40,6 @@ ORIGINALS_DIR = "/home/b-cam/Scripts/blindCam/originals"
 RESIZED_DIR = "/home/b-cam/Scripts/blindCam/resized"
 # Make sure audio directory is absolute
 AUDIO_DIR = os.path.abspath("audio")  # Convert to absolute path
-URL = os.getenv("URL")
 MAX_AUDIO_FILES = 10
 
 # Debug the path resolution for audio files
@@ -47,8 +55,10 @@ interrupt_event = threading.Event()
 class State:
     def __init__(self):
         self.in_playback_mode = False  # True when in a capture-to-response cycle
+        self.in_audio_playback_mode = False  # True when in audio playback mode (navigating recordings)
         self.current_audio_pid = None  # Current audio process PID
         self.is_audio_playing = threading.Event()  # Flag to track if audio is playing
+        self.current_playback_index = 0  # Index of current audio file during playback navigation
         
 app_state = State()
 
@@ -115,17 +125,46 @@ def keep_last_10_photos(directory):
     except Exception as e:
         print(f"Error cleaning up photos: {e}")
 
+def resize_image(image):
+    """Resizes image so that the longest side is 150 pixels while maintaining aspect ratio."""
+    max_size = 150
+    width, height = image.size
+
+    if width > height:
+        new_width = max_size
+        new_height = int((max_size / width) * height)
+    else:
+        new_height = max_size
+        new_width = int((max_size / height) * width)
+
+    return image.resize((new_width, new_height), Image.LANCZOS)
+
+def convert_to_small_wav(input_file, output_file):
+    """Convert any WAV to a smaller PCM WAV format."""
+    print(f"Converting {input_file} to a smaller WAV...")
+
+    # Detect format automatically
+    audio = AudioSegment.from_file(input_file, format="wav")  # Auto-detects compressed WAV
+
+    # Reduce sample rate to 22050 Hz, convert to mono, reduce bit depth
+    audio = audio.set_frame_rate(22050).set_channels(1).set_sample_width(2)
+
+    # Export to WAV
+    audio.export(output_file, format="wav")
+    print(f"Converted to smaller WAV: {output_file}")
+    return output_file
+
 def send_request(image_path):
-    """Sends the image to the server, loops keyboard, stops, then plays response."""
+    """Performs all processing locally: resizes image, uses OpenAI to analyze, and Google TTS for speech."""
     if not image_path:
         print("No image to send, skipping.")
         return
 
-    print(f"Sending image: {image_path} to {URL}")
+    print(f"Processing image: {image_path}")
     
-    # Start keyboard sound loop using AudioManager
-    audio_manager.loop_sound("keyboard.wav")
-    print("Started keyboard sound loop in background")
+    # Start loading sound loop using AudioManager
+    audio_manager.loop_sound("sys_aud/loading.wav")
+    print("Started loading sound loop in background")
     
     # Create a flag to track if we've been interrupted
     interrupted = False
@@ -146,206 +185,171 @@ def send_request(image_path):
         return False
 
     try:
-        # Set up the request but don't send it yet
-        with open(image_path, "rb") as f:
-            files = {"image": f}
-            data = {"max_words": wordiness}
-            # Check for interruption before sending
-            if check_for_interruption():
-                return
-            
-            # Start a thread to periodically check for interruptions
-            interrupt_check_thread = threading.Thread(
-                target=lambda: [time.sleep(0.2), check_for_interruption()] * 150,  # Check every 0.2s for 30s
-                daemon=True
-            )
-            interrupt_check_thread.start()
-            
-            # Create a streaming request that can be interrupted
-            try:
-                # Start the request with stream=True so we can monitor for interruptions
-                response = requests.post(URL, files=files, data=data, timeout=120, stream=True)
-                
-                # Check status code before downloading content
-                if response.status_code != 200:
-                    print(f"Server error: {response.status_code}")
-                    # Play error sound
-                    audio_manager.stop_all_audio()  # Stop keyboard sound
-                    audio_manager.play_error_sound()
-                    return
-                
-                # We'll download the content in chunks while periodically checking for interruptions
-                content_chunks = []
-                for chunk in response.iter_content(chunk_size=8192):
-                    # Check for interruptions after each chunk
-                    if check_for_interruption():
-                        print("Request interrupted during download, aborting")
-                        response.close()
-                        return
-                    
-                    # Store the chunk if we're continuing
-                    if chunk:
-                        content_chunks.append(chunk)
-                        print(f"Downloaded {len(content_chunks)} chunks (~{sum(len(c) for c in content_chunks)/1024:.1f} KB)")
-                
-                # Combine all chunks to get full content
-                full_content = b''.join(content_chunks)
-                
-                # Store the status code before we close the original response
-                status_code = response.status_code
-                
-                # Create a simple class that just has the content
-                class ResponseWrapper:
-                    def __init__(self, status_code, content):
-                        self.status_code = status_code
-                        self.content = content
-                    
-                    def close(self):
-                        pass  # Nothing to close, we already have the content
-                
-                # Close the original response
-                response.close()
-                
-                # Replace with our simple wrapper
-                response = ResponseWrapper(status_code, full_content)
-                
-            except requests.RequestException as e:
-                print(f"Request error during streaming: {e}")
-                audio_manager.stop_all_audio()
-                return
-                
-            # Check for interruption now that download is complete
-            if check_for_interruption():
-                response.close()
-                return
-
-    except requests.RequestException as e:
-        print(f"Request connection failed: {e}")
-        # Stop all audio
-        audio_manager.stop_all_audio()
-        return
-
-    # After request finishes
-    print("Request completed, stopping keyboard sound")
-    # Stop all audio via AudioManager
-    audio_manager.stop_all_audio()
-    
-    # Check for interruption again after request finishes
-    if interrupted or check_for_interruption():
-        print("Interrupted: skipping response processing")
-        return
-
-    if response.status_code == 200:
-        # Check if response actually contains audio data
-        if not response.content or len(response.content) < 100:
-            print(f"WARNING: Empty or too small response from server: {len(response.content)} bytes")
-            audio_manager.play_error_sound()  # Play error sound
-            return
-            
-        # Check for interruption before saving audio
+        # Check for interruption before beginning
         if check_for_interruption():
-            print("Interrupted: skipping audio save and playback")
             return
-            
-        # Check if response is a valid WAV file
-        is_wav = response.content.startswith(b'RIFF')
         
-        if not is_wav:
-            print(f"WARNING: Response is not a valid WAV file")
-            print(f"First 20 bytes of response: {response.content[:20]}")
-            audio_manager.play_error_sound()  # Play error sound
-            return
-            
-        # Check for interruption before saving audio
-        if check_for_interruption():
-            print("Interrupted: skipping audio save and playback")
-            return
-            
-        # Save response with appropriate extension
-        random_id = random.randint(1000, 9999)
-        # Always use .wav extension
-        extension = ".wav"
-        # Ensure we're using the absolute path for the audio file
-        new_audio_file = os.path.join(AUDIO_DIR, f"response_{random_id}{extension}")
+        # Start a thread to periodically check for interruptions
+        interrupt_check_thread = threading.Thread(
+            target=lambda: [time.sleep(0.2), check_for_interruption()] * 150,  # Check every 0.2s for 30s
+            daemon=True
+        )
+        interrupt_check_thread.start()
         
-        # Make sure audio directory exists
-        os.makedirs(AUDIO_DIR, exist_ok=True)
-        
+        # Step 1: Load and resize the image
         try:
-            with open(new_audio_file, "wb") as af:
-                af.write(response.content)
-                af.flush()
-                os.fsync(af.fileno())
+            image = Image.open(image_path).convert("RGB")
+            resized_image = resize_image(image)
             
-            print(f"Audio file saved: {new_audio_file}, size: {len(response.content)} bytes")
-            print(f"File exists check: {os.path.exists(new_audio_file)}")
+            # Save resized image temporarily (optional)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            resized_path = os.path.join(RESIZED_DIR, f"{timestamp}_resized.jpg")
+            resized_image.save(resized_path, "JPEG")
+        except Exception as e:
+            print(f"Error processing image: {e}")
+            audio_manager.stop_all_audio()
+            audio_manager.play_error_sound()
+            return
+
+        # Check for interruption after image processing
+        if check_for_interruption():
+            return
             
-            # Check for interruption after saving
-            if check_for_interruption():
-                print("Interrupted after saving: skipping validation and playback")
-                return
+        # Step 2: Send to OpenAI API for image description
+        try:
+            # Create prompt based on wordiness setting
+            prompt = f"You are standing in for someone who is blind and cannot see, \
+            objectively note everything you see in the image. Don't get too poetic, and don't go over {wordiness} words."
             
-            # Check if audio file was correctly saved and has valid header
-            if os.path.exists(new_audio_file):
-                with open(new_audio_file, "rb") as test_f:
-                    header = test_f.read(12)  # Read file header
-                    if not header.startswith(b'RIFF'):
-                        print(f"WARNING: Saved WAV file has invalid header")
-                        # Play error sound
-                        audio_manager.play_error_sound()
-                        return
+            # Create OpenAI client
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Convert image to base64
+            import base64
+            with open(resized_path, "rb") as img_file:
+                # Encode image properly
+                image_data = base64.b64encode(img_file.read()).decode('utf-8')
+                
+                # Use the API with the encoded image
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "user", 
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+                            ]
+                        }
+                    ],
+                    max_tokens=300,
+                )
+                
+            # Extract generated text
+            generated_text = response.choices[0].message.content
+            print(f"Generated description: {generated_text}")
             
         except Exception as e:
-            print(f"ERROR saving audio file: {e}")
-            # Play error sound
+            print(f"Error analyzing image with OpenAI: {e}")
+            audio_manager.stop_all_audio()
             audio_manager.play_error_sound()
             return
-
-        # One final check for interruption before playing
+            
+        # Check for interruption after OpenAI processing
         if check_for_interruption():
-            print("Interrupted: skipping audio playback")
             return
-
-        # Verify file exists before playing
-        if not os.path.exists(new_audio_file) or os.path.getsize(new_audio_file) < 100:
-            print(f"WARNING: Audio file missing or too small: {new_audio_file}")
-            # Play error sound
+            
+        # Step 3: Convert text to speech using OpenAI TTS
+        try:
+            # Create the final WAV file name
+            final_wav = os.path.join(AUDIO_DIR, f"response_{random.randint(1000, 9999)}.wav")
+            
+            # Use OpenAI's Text-to-Speech API with proper streaming
+            with client.audio.speech.with_streaming_response.create(
+                model="tts-1", # You can also use "tts-1-hd" for higher quality
+                voice="nova",  # Options: "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+                input=generated_text,
+            ) as response:
+                # Stream the response to a file
+                with open(final_wav, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+            
+            # Optimize the WAV file if needed using pydub
+            try:
+                # Load and optimize the audio
+                audio = AudioSegment.from_file(final_wav)
+                
+                # Convert to smaller WAV with optimized settings
+                audio = audio.set_frame_rate(22050).set_channels(1).set_sample_width(2)
+                
+                # Save the optimized version back to the same file
+                audio.export(final_wav, format="wav")
+                print(f"Optimized WAV file: {final_wav}")
+            except Exception as e:
+                print(f"Warning: Could not optimize WAV file, using original: {e}")
+                # Continue with the original file since it should still work
+            
+            final_audio = final_wav
+            print(f"Created WAV audio file using OpenAI TTS: {final_wav}")
+            
+        except Exception as e:
+            print(f"Error generating speech with OpenAI TTS: {e}")
+            audio_manager.stop_all_audio()
             audio_manager.play_error_sound()
             return
-        
-        # Sleep before playing to ensure previous audio is fully stopped
-        time.sleep(0.5)
-        
-        # Final interruption check before playing
-        if check_for_interruption():
-            print("Interrupted just before playback: cancelling playback")
-            return
-            
-        # Define callback for when audio completes
-        def on_audio_complete():
-            print("Audio playback completed - ready for next command")
-            # No need to reset mode flag here, AudioManager does it automatically now
-            
-        # Send serial command to indicate request is complete and playback starting
-        serialHandle.send_serial_command("REQUEST_COMPLETE")
-        
-        # Play the response audio
-        print(f"Playing response audio: {new_audio_file}")
-        
-        # Let AudioManager handle all the details
-        audio_manager.in_playback_mode = True  # Mark that we're in playback mode
-        
-        if audio_manager.play_sound(new_audio_file, callback=on_audio_complete):
-            print("SUCCESS: Response audio playback started")
-        else:
-            print("ERROR: Failed to start response audio playback")
-            audio_manager.in_playback_mode = False
-
-    else:
-        print(f"Server error: {response.status_code}")
-        # Play error sound
+    
+    except Exception as e:
+        print(f"General error during processing: {e}")
+        audio_manager.stop_all_audio()
         audio_manager.play_error_sound()
-    keep_last_10_photos(ORIGINALS_DIR);
+        return
+
+    # After all processing finishes
+    print("Processing completed, stopping loading sound")
+    audio_manager.stop_all_audio()
+    
+    # Check for interruption again after processing
+    if interrupted or check_for_interruption():
+        print("Interrupted: skipping response playback")
+        return
+
+    # Verify file exists before playing
+    if not os.path.exists(final_audio) or os.path.getsize(final_audio) < 100:
+        print(f"WARNING: Audio file missing or too small: {final_audio}")
+        audio_manager.play_error_sound()
+        return
+    
+    # Sleep before playing to ensure previous audio is fully stopped
+    time.sleep(0.5)
+    
+    # Final interruption check before playing
+    if check_for_interruption():
+        print("Interrupted just before playback: cancelling playback")
+        return
+        
+    # Define callback for when audio completes
+    def on_audio_complete():
+        print("Audio playback completed - ready for next command")
+        
+    # Send serial command to indicate request is complete and playback starting
+    serialHandle.send_serial_command("REQUEST_COMPLETE")
+    
+    # Play the response audio
+    print(f"Playing response audio: {final_audio}")
+    
+    # Let AudioManager handle all the details
+    audio_manager.in_playback_mode = True  # Mark that we're in playback mode
+    
+    if audio_manager.play_sound(final_audio, callback=on_audio_complete):
+        print("SUCCESS: Response audio playback started")
+    else:
+        print("ERROR: Failed to start response audio playback")
+        audio_manager.in_playback_mode = False
+        
+    # Cleanup photos
+    keep_last_10_photos(ORIGINALS_DIR)
+    manage_audio_files(AUDIO_DIR)
 
 def take_picture():
     """Triggered by TAKE_PICTURE command."""
@@ -378,11 +382,96 @@ def stop_process():
         
     print("Processes stopped.")
 
+def get_sorted_audio_files():
+    """Returns a list of audio files in the AUDIO_DIR sorted by modification time (newest first)."""
+    audio_files = []
+    try:
+        for file in os.listdir(AUDIO_DIR):
+            if file.lower().endswith('.wav') and 'response_' in file:
+                file_path = os.path.join(AUDIO_DIR, file)
+                audio_files.append(file_path)
+        
+        # Sort by modification time (newest first)
+        audio_files.sort(key=os.path.getmtime, reverse=True)
+        return audio_files
+    except Exception as e:
+        print(f"Error getting audio files: {e}")
+        return []
+
+def enter_playback_mode():
+    """Enter audio file playback navigation mode."""
+    print("Entering audio playback mode...")
+    app_state.in_audio_playback_mode = True
+    
+    # Get sorted list of audio files
+    audio_files = get_sorted_audio_files()
+    
+    if not audio_files:
+        print("No audio files found to play back")
+        audio_manager.play_error_sound()
+        app_state.in_audio_playback_mode = False
+        serialHandle.send_serial_command("READY")
+        return False
+    
+    # Reset playback index
+    app_state.current_playback_index = 0
+    
+    # Play the first file
+    if audio_files:
+        print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {audio_files[0]}")
+        audio_manager.play_sound(audio_files[0])
+        return True
+    return False
+
+def handle_playback_navigation(direction):
+    """Handle navigation within playback mode (NEXT or PREV commands)."""
+    audio_files = get_sorted_audio_files()
+    
+    if not audio_files:
+        print("No audio files available")
+        audio_manager.play_error_sound()
+        return
+    
+    # Update the index based on the direction
+    if direction == "NEXT":
+        app_state.current_playback_index = (app_state.current_playback_index + 1) % len(audio_files)
+    elif direction == "PREV":
+        app_state.current_playback_index = (app_state.current_playback_index - 1) % len(audio_files)
+    
+    # Play the selected file
+    file_to_play = audio_files[app_state.current_playback_index]
+    print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {file_to_play}")
+    audio_manager.play_sound(file_to_play)
+
+def exit_playback_mode():
+    """Exit audio file playback navigation mode."""
+    print("Exiting audio playback mode...")
+    app_state.in_audio_playback_mode = False
+    audio_manager.stop_all_audio()
+    serialHandle.send_serial_command("READY")
+
 def main_loop():
     print("🔄 Running command loop...")
 
     while True:
         cmd = serialHandle.last_command
+        
+        # Handle playback mode differently
+        if app_state.in_audio_playback_mode:
+            if cmd == "TAKE_PICTURE":
+                # In playback mode, shutter button exits playback
+                serialHandle.last_command = None
+                exit_playback_mode()
+            elif cmd == "NEXT":
+                serialHandle.last_command = None
+                handle_playback_navigation("NEXT")
+            elif cmd == "PREV":
+                serialHandle.last_command = None
+                handle_playback_navigation("PREV")
+            time.sleep(0.1)
+            continue  # Skip the rest of the loop and restart
+            
+        # Handle normal mode commands
         if cmd == "TAKE_PICTURE":
             serialHandle.last_command = None
             
@@ -414,6 +503,27 @@ def main_loop():
         elif cmd == "DECREASE_VOLUME":
             serialHandle.last_command = None
             print("🔉 Decrease volume... (not implemented)")
+            
+        elif cmd == "PLAY_BACK":
+            serialHandle.last_command = None
+            enter_playback_mode()
+            
+        elif cmd == "WORD_CNT":
+            serialHandle.last_command = None 
+            # Toggle between wordiness levels
+            global wordiness
+            if wordiness == 50:
+                wordiness = 100
+            elif wordiness == 100:
+                wordiness = 200
+            elif wordiness == 200:
+                wordiness = 500
+            elif wordiness == 500:
+                wordiness = 1000
+            else:
+                wordiness = 50
+            print(f"Set wordiness to: {wordiness}")
+            serialHandle.send_serial_command(f"WORDINESS_{wordiness}")
             
         time.sleep(0.1)
 
