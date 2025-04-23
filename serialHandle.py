@@ -3,7 +3,7 @@ import threading
 
 # Global variable to track last received command
 last_command = None  
-command_lock = threading.Lock()  
+command_lock = threading.Lock()
 
 # Initialize serial connection
 ser = serial.Serial('/dev/ttyS0', 19200, timeout=1)

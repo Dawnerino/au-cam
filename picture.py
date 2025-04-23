@@ -78,8 +78,8 @@ def capture_image():
 
     Image.fromarray(frame).save(image_path)
     
-    # Play shutter sound
-    audio_manager.play_sound("tempclick.wav", 88)
+    # Play shutter sound and wait for it to complete
+    audio_manager.play_sound_and_wait("tempclick.wav", 88)
 
     print(f"Captured image: {image_path}")
     serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Vibrate on Arduino

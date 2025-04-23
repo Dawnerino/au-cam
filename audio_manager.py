@@ -252,6 +252,37 @@ class AudioManager:
     def is_playing(self):
         """Check if audio is currently playing."""
         return self.is_audio_playing.is_set()
+        
+    def play_sound_and_wait(self, file_path, volume=100):
+        """Play a sound and wait for it to finish before returning.
+        
+        Args:
+            file_path: Path to audio file (WAV or MP3)
+            volume: Volume 0-100
+            
+        Returns:
+            True if sound was played successfully, False otherwise
+        """
+        if not os.path.exists(file_path):
+            print(f"ERROR: Audio file not found: {file_path}")
+            return False
+            
+        # Create an event to signal completion
+        complete_event = threading.Event()
+        
+        # Define callback for when sound finishes
+        def on_complete():
+            complete_event.set()
+            
+        # Play the sound with our callback
+        success = self.play_sound(file_path, volume, callback=on_complete)
+        
+        if success:
+            # Wait for sound to complete
+            complete_event.wait()
+            return True
+        else:
+            return False
 
     def send_command(self, command, file_path=None, volume=100):
         """Legacy command interface."""
