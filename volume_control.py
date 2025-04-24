@@ -6,7 +6,7 @@ import subprocess
 class VolumeEncoder:
     """Class to handle a rotary encoder for volume control."""
     
-    def __init__(self, clk_pin=17, dt_pin=23, button_pin=27, min_volume=0, max_volume=100, step=5):
+    def __init__(self, clk_pin=17, dt_pin=23, button_pin=27, min_volume=50, max_volume=100, step=1):
         """
         Initialize the rotary encoder.
         
@@ -14,9 +14,9 @@ class VolumeEncoder:
             clk_pin: GPIO pin for the CLK signal (defaults to GPIO 17)
             dt_pin: GPIO pin for the DT signal (defaults to GPIO 23)
             button_pin: GPIO pin for the push button (defaults to GPIO 27)
-            min_volume: Minimum volume level (0-100)
-            max_volume: Maximum volume level (0-100)
-            step: Step size for volume changes (1-20)
+            min_volume: Minimum volume level (50-100)
+            max_volume: Maximum volume level (50-100)
+            step: Step size for volume changes (1)
         """
         # Store pin assignments
         self.clk_pin = clk_pin
@@ -24,9 +24,9 @@ class VolumeEncoder:
         self.button_pin = button_pin
         
         # Volume settings
-        self.min_volume = max(0, min(min_volume, 100))
-        self.max_volume = max(0, min(max_volume, 100))
-        self.step = max(1, min(step, 20))
+        self.min_volume = max(50, min(min_volume, 100))
+        self.max_volume = max(50, min(max_volume, 100))
+        self.step = 1
         
         # Internal state
         self.current_volume = 80  # Default starting volume
@@ -117,13 +117,13 @@ class VolumeEncoder:
             # Check for button press (transition from 1 to 0)
             if button_state == 0 and self.last_button_state == 1:
                 # Button pressed - toggle mute
-                if self.current_volume > 0:
+                if self.current_volume > 50:
                     # Currently unmuted - save volume and mute
                     self._saved_volume = self.current_volume
-                    self.set_system_volume(0)
-                    print("Muted audio")
+                    self.set_system_volume(50)
+                    print("Muted audio to 50%")
                 else:
-                    # Currently muted - restore saved volume
+                    # Currently at minimum - restore saved volume
                     self.set_system_volume(getattr(self, '_saved_volume', 80))
                     print("Unmuted audio")
                 
@@ -186,10 +186,11 @@ class VolumeEncoder:
             print(f"Error cleaning up GPIO: {e}")
     
     def set_step_size(self, step):
-        """Set the step size for volume changes."""
+        """Set the step size for volume changes (fixed at 1)."""
         with self.lock:
-            self.step = max(1, min(step, 20))
-            print(f"Volume step size set to {self.step}")
+            # Always use step size of 1, regardless of input
+            self.step = 1
+            print("Volume step size fixed at 1")
             return self.step
 
 # Singleton instance - will be initialized when module is imported
