@@ -4,6 +4,14 @@ import subprocess
 import time
 import os
 
+# Import volume control module
+try:
+    import volume_control
+    has_volume_control = True
+except ImportError:
+    has_volume_control = False
+    print("WARNING: volume_control module not found, falling back to direct amixer calls")
+
 # Define command types
 AUDIO_CMD_PLAY = "play"     # Play a sound once
 AUDIO_CMD_LOOP = "loop"     # Loop a sound until stopped
@@ -32,6 +40,17 @@ class AudioManager:
         
         if not (self.has_aplay or self.has_mpg123):
             print("WARNING: No supported audio player found!")
+        
+        # Initialize volume control if available
+        if has_volume_control:
+            try:
+                self.volume_control = volume_control.init_volume_encoder()
+                print("Volume control initialized with rotary encoder")
+            except Exception as e:
+                print(f"WARNING: Failed to initialize volume control: {e}")
+                self.volume_control = None
+        else:
+            self.volume_control = None
             
     def _command_exists(self, cmd):
         """Check if a command exists on the system."""
@@ -44,19 +63,23 @@ class AudioManager:
             return False
 
     def _set_volume(self, volume):
-        """Set system volume using amixer (0-100)"""
+        """Set system volume (0-100)"""
         try:
             # Ensure volume is within valid range
             volume = max(0, min(100, volume))
             
-            # Set volume using amixer (for Raspberry Pi)
-            subprocess.run(
-                ["amixer", "sset", "SoftMaster", f"{volume}%"], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE
-            )
-            print(f"Volume set to {volume}%")
-            return True
+            # Use volume_control module if available
+            if has_volume_control and self.volume_control:
+                return volume_control.set_volume(volume)
+            else:
+                # Fallback to direct amixer command
+                subprocess.run(
+                    ["amixer", "sset", "SoftMaster", f"{volume}%"], 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE
+                )
+                print(f"Volume set to {volume}%")
+                return True
         except Exception as e:
             print(f"Error setting volume: {e}")
             return False

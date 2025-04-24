@@ -45,9 +45,16 @@ print(f"Current working directory: {os.getcwd()}")
 print(f"Absolute path to AUDIO_DIR: {AUDIO_DIR}")
 
 # Global Vars
-Volume = 100
 wordiness = 200
 interrupt_event = threading.Event()
+
+# Try to import volume control
+try:
+    import volume_control
+    has_volume_control = True
+except ImportError:
+    has_volume_control = False
+    print("WARNING: volume_control module not found. Volume control via rotary encoder will not be available.")
 
 # Global state object for tracking playback
 class State:
@@ -67,6 +74,19 @@ for directory in [ORIGINALS_DIR, RESIZED_DIR, AUDIO_DIR]:
 # Create the AudioManager instance
 audio_manager = AudioManager()
 
+# Initialize volume control if available
+if has_volume_control:
+    try:
+        # This will initialize the rotary encoder for volume control
+        volume_encoder = volume_control.init_volume_encoder()
+        print("Rotary encoder initialized for system volume control")
+    except Exception as e:
+        print(f"ERROR: Failed to initialize volume encoder: {e}")
+        volume_encoder = None
+else:
+    volume_encoder = None
+    print("Volume control via rotary encoder is not available")
+
 def capture_image():
     # Clear last command
     serialHandle.last_command = None
@@ -79,7 +99,9 @@ def capture_image():
     Image.fromarray(frame).save(image_path)
     
     # Play shutter sound and wait for it to complete
-    audio_manager.play_sound_and_wait("tempclick.wav", 88)
+    # Get current volume if available, or use default
+    volume = volume_control.get_volume() if has_volume_control and volume_encoder else 88
+    audio_manager.play_sound_and_wait("tempclick.wav", volume)
 
     print(f"Captured image: {image_path}")
     serialHandle.send_serial_command("FEEDBACK_VIBRATE")  # Vibrate on Arduino
@@ -161,7 +183,9 @@ def send_request(image_path):
     print(f"Processing image: {image_path}")
     
     # Start loading sound loop using AudioManager
-    audio_manager.loop_sound("sys_aud/loading.wav",80)
+    # Get current volume if available, or use default
+    volume = volume_control.get_volume() if has_volume_control and volume_encoder else 80
+    audio_manager.loop_sound("sys_aud/loading.wav", volume)
     print("Started loading sound loop in background")
     
     # Create a flag to track if we've been interrupted
@@ -339,7 +363,9 @@ def send_request(image_path):
     # Let AudioManager handle all the details
     audio_manager.in_playback_mode = True  # Mark that we're in playback mode
     
-    if audio_manager.play_sound(final_audio, 87, callback=on_audio_complete):
+    # Get current volume if available, or use default
+    volume = volume_control.get_volume() if has_volume_control and volume_encoder else 87
+    if audio_manager.play_sound(final_audio, volume, callback=on_audio_complete):
         print("SUCCESS: Response audio playback started")
     else:
         print("ERROR: Failed to start response audio playback")
@@ -417,7 +443,9 @@ def enter_playback_mode():
     # Play the first file
     if audio_files:
         print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {audio_files[0]}")
-        audio_manager.play_sound(audio_files[0],87)
+        # Get current volume if available, or use default
+        volume = volume_control.get_volume() if has_volume_control and volume_encoder else 87
+        audio_manager.play_sound(audio_files[0], volume)
         return True
     return False
 
@@ -439,7 +467,9 @@ def handle_playback_navigation(direction):
     # Play the selected file
     file_to_play = audio_files[app_state.current_playback_index]
     print(f"Playing audio file ({app_state.current_playback_index + 1}/{len(audio_files)}): {file_to_play}")
-    audio_manager.play_sound(file_to_play, 87)
+    # Get current volume if available, or use default
+    volume = volume_control.get_volume() if has_volume_control and volume_encoder else 87
+    audio_manager.play_sound(file_to_play, volume)
 
 def exit_playback_mode():
     """Exit audio file playback navigation mode."""
@@ -496,11 +526,25 @@ def main_loop():
             
         elif cmd == "INCREASE_VOLUME":
             serialHandle.last_command = None
-            print("🔊 Increase volume... (not implemented)")
+            if has_volume_control and volume_encoder:
+                # Use the volume encoder to increment volume
+                current_vol = volume_control.get_volume()
+                new_vol = min(current_vol + 10, 100)  # Increase by 10%, max 100%
+                volume_control.set_volume(new_vol)
+                print(f"🔊 Increased volume to {new_vol}%")
+            else:
+                print("🔊 Volume control not available")
             
         elif cmd == "DECREASE_VOLUME":
             serialHandle.last_command = None
-            print("🔉 Decrease volume... (not implemented)")
+            if has_volume_control and volume_encoder:
+                # Use the volume encoder to decrement volume
+                current_vol = volume_control.get_volume()
+                new_vol = max(current_vol - 10, 0)  # Decrease by 10%, min 0%
+                volume_control.set_volume(new_vol)
+                print(f"🔉 Decreased volume to {new_vol}%")
+            else:
+                print("🔉 Volume control not available")
             
         elif cmd == "PLAY_BACK":
             serialHandle.last_command = None
@@ -526,7 +570,27 @@ def main_loop():
         time.sleep(0.1)
 
 if __name__ == "__main__":
-    # Start serial listener
-    serialHandle.start_serial_listener()
-    # Run main loop
-    main_loop()
+    try:
+        # Start serial listener
+        serialHandle.start_serial_listener()
+        # Run main loop
+        main_loop()
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user. Cleaning up...")
+    finally:
+        # Cleanup resources on exit
+        print("Cleaning up resources...")
+        
+        # Stop any playing audio
+        if audio_manager:
+            audio_manager.stop_all_audio()
+            
+        # Clean up volume control if it was initialized
+        if has_volume_control and 'volume_encoder' in globals() and volume_encoder:
+            volume_control.cleanup()
+            print("Volume encoder cleaned up")
+            
+        # Close serial connection if open
+        serialHandle.stop_serial()
+        
+        print("Cleanup complete. Exiting.")
