@@ -553,22 +553,24 @@ def main_loop():
         elif cmd == "WORD_CNT":
             serialHandle.last_command = None 
             # Toggle between wordiness levels
+            volume = volume_control.get_volume()
             global wordiness
             if wordiness == 50:
                 wordiness = 100
-                audio_manager.play_sound("sys_aud/wordiness/small.wav")
+                audio_manager.play_sound("sys_aud/wordiness/small.wav", volume)
             elif wordiness == 100:
                 wordiness = 200
-                audio_manager.play_sound("sys_aud/wordiness/normal.wav")
+                audio_manager.play_sound("sys_aud/wordiness/normal.wav", volume)
             elif wordiness == 200:
                 wordiness = 500
-                audio_manager.play_sound("sys_aud/wordiness/big.wav")
+                audio_manager.play_sound("sys_aud/wordiness/big.wav", volume)
             elif wordiness == 500:
                 wordiness = 1000
-                audio_manager.play_sound("sys_aud/wordiness/largest.wav")
+                
+                audio_manager.play_sound("sys_aud/wordiness/largest.wav", volume)
             else:
                 wordiness = 50
-                audio_manager.play_sound("sys_aud/wordiness/tiny.wav")
+                audio_manager.play_sound("sys_aud/wordiness/tiny.wav", volume)
             print(f"Set wordiness to: {wordiness}")
             serialHandle.send_serial_command(f"WORDINESS_{wordiness}")
             
