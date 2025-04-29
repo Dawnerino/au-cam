@@ -1,6 +1,6 @@
 // pins
 const int buttonPin = 2;
-const int vibrationPin = 3;
+const int vibrationPin = 10;
 const int playBackPin = 6;
 const int prevPin = 5;
 const int nextPin = 7;
@@ -93,6 +93,12 @@ void handleCommand(String command) {
         lastCommand = "FEEDBACK_VIBRATE";
     } else if (command == "STOP_VIBRATION") {
         stopVibration();
+    } else if (command == "REQUEST_COMPLETE") {
+        triggerVibration(150, 255);
+        delay(100);
+        triggerVibration(150, 255);
+    } else if (command == "READY") {
+        triggerVibration(50, 200);
     } else {
         Serial.print("UNKNOWN_COMMAND: ");
         Serial.println(command);
@@ -107,9 +113,9 @@ void iteVibr() {
   if (globalVibration 
 }
 */
-void triggerVibration() {
-    analogWrite(vibrationPin, 100);  // Adjust as needed
-    delay(500);  // Vibration duration
+void triggerVibration(int x, int y) {
+    analogWrite(vibrationPin, y);  // Adjust as needed
+    delay(x);  // Vibration duration
     stopVibration();
 }
 
@@ -145,18 +151,18 @@ void loop() {
     // Handle ongoing vibration loop
     if (isVibrating) {
         unsigned long now = millis();
-        if (now - lastVibrateTime > 10) {  // update every 10ms
+        if (now - lastVibrateTime > 50) {  // update every 10ms
             lastVibrateTime = now;
 
             // Fade vibration up/down
             if (fadeUp) {
-                vibrationStrength += 15;
+                vibrationStrength += 10; //steps for vibration
                 if (vibrationStrength >= 255) {
                     vibrationStrength = 255;
                     fadeUp = false;
                 }
             } else {
-                vibrationStrength -= 15;
+                vibrationStrength -= 10; //steps for vibration
                 if (vibrationStrength <= 0) {
                     vibrationStrength = 0;
                     fadeUp = true;

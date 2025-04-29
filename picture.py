@@ -199,7 +199,7 @@ def send_request(image_path):
             
             # Stop all audio via AudioManager
             audio_manager.stop_all_audio()
-                
+            serialHandle.send_serial_command("STOP_VIBRATION")
             serialHandle.last_command = None
             nonlocal interrupted
             interrupted = True
@@ -479,7 +479,7 @@ def exit_playback_mode():
     serialHandle.send_serial_command("READY")
 
 def main_loop():
-    print("🔄 Running command loop...")
+    print("Running command loop...")
 
     while True:
         cmd = serialHandle.last_command
@@ -542,9 +542,9 @@ def main_loop():
                 current_vol = volume_control.get_volume()
                 new_vol = max(current_vol - 10, 0)  # Decrease by 10%, min 0%
                 volume_control.set_volume(new_vol)
-                print(f"🔉 Decreased volume to {new_vol}%")
+                print(f"Decreased volume to {new_vol}%")
             else:
-                print("🔉 Volume control not available")
+                print("Volume control not available")
             
         elif cmd == "PLAY_BACK":
             serialHandle.last_command = None
@@ -556,14 +556,19 @@ def main_loop():
             global wordiness
             if wordiness == 50:
                 wordiness = 100
+                audio_manager.play_sound("sys_aud/small.wav",100)
             elif wordiness == 100:
                 wordiness = 200
+                audio_manager.play_sound("sys_aud/normal.wav",100)
             elif wordiness == 200:
                 wordiness = 500
+                audio_manager.play_sound("sys_aud/big.wav",100)
             elif wordiness == 500:
                 wordiness = 1000
+                audio_manager.play_sound("sys_aud/largest.wav",100)
             else:
                 wordiness = 50
+                audio_manager.play_sound("sys_aud/tiny.wav",100)
             print(f"Set wordiness to: {wordiness}")
             serialHandle.send_serial_command(f"WORDINESS_{wordiness}")
             
