@@ -556,16 +556,16 @@ def main_loop():
             global wordiness
             if wordiness == 50:
                 wordiness = 100
-                audio_manager.play_sound("sys_aud/small.wav",100)
+                audio_manager.play_sound("sys_aud/wordiness/small.wav",100)
             elif wordiness == 100:
                 wordiness = 200
-                audio_manager.play_sound("sys_aud/normal.wav",100)
+                audio_manager.play_sound("sys_aud/wordiness/normal.wav",100)
             elif wordiness == 200:
                 wordiness = 500
-                audio_manager.play_sound("sys_aud/big.wav",100)
+                audio_manager.play_sound("sys_aud/wordiness/big.wav",100)
             elif wordiness == 500:
                 wordiness = 1000
-                audio_manager.play_sound("sys_aud/largest.wav",100)
+                audio_manager.play_sound("sys_aud/wordiness/largest.wav",100)
             else:
                 wordiness = 50
                 audio_manager.play_sound("sys_aud/tiny.wav",100)
