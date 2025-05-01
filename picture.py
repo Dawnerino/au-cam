@@ -567,7 +567,8 @@ def main_loop():
         elif cmd == "WORD_CNT":
             serialHandle.last_command = None 
             # Toggle between wordiness levels
-            volume = volume_control.get_volume()
+            # Get current volume if available, or use default
+            volume = volume_control.get_volume() if has_volume_control and volume_encoder else 88
             global wordiness
             if wordiness == 50:
                 wordiness = 100
