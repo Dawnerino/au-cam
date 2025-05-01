@@ -94,11 +94,9 @@ void handleCommand(String command) {
     } else if (command == "STOP_VIBRATION") {
         stopVibration();
     } else if (command == "REQUEST_COMPLETE") {
-        triggerVibration(150, 255);
-        delay(100);
-        triggerVibration(150, 255);
-    } else if (command == "READY") {
-        triggerVibration(50, 200);
+      triggerVibration(50);
+      delay(50);
+      triggerVibration(50);
     } else {
         Serial.print("UNKNOWN_COMMAND: ");
         Serial.println(command);
@@ -113,8 +111,8 @@ void iteVibr() {
   if (globalVibration 
 }
 */
-void triggerVibration(int x, int y) {
-    analogWrite(vibrationPin, y);  // Adjust as needed
+void triggerVibration(int x) {
+    analogWrite(vibrationPin, 200);  // Adjust as needed
     delay(x);  // Vibration duration
     stopVibration();
 }
@@ -151,18 +149,18 @@ void loop() {
     // Handle ongoing vibration loop
     if (isVibrating) {
         unsigned long now = millis();
-        if (now - lastVibrateTime > 50) {  // update every 10ms
+        if (now - lastVibrateTime > 10) {  // update every 10ms
             lastVibrateTime = now;
 
             // Fade vibration up/down
             if (fadeUp) {
-                vibrationStrength += 10; //steps for vibration
+                vibrationStrength += 10;
                 if (vibrationStrength >= 255) {
                     vibrationStrength = 255;
                     fadeUp = false;
                 }
             } else {
-                vibrationStrength -= 10; //steps for vibration
+                vibrationStrength -= 10;
                 if (vibrationStrength <= 0) {
                     vibrationStrength = 0;
                     fadeUp = true;
