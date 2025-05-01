@@ -47,6 +47,12 @@ print(f"Absolute path to AUDIO_DIR: {AUDIO_DIR}")
 # Global Vars
 wordiness = 200
 interrupt_event = threading.Event()
+prompt = f"You are standing in for someone who is blind and cannot see. Your response must NOT mention anything that isn't observed in the image and shouldn't be formatted.\
+            objectively note everything you see in the image (don't get poetic.)\
+            Anything relating to safety should be noted first\
+            If there IS text, try to note what it says.\
+            If there is money, try to note what value it holds.\
+            Don't go over {wordiness} words"
 
 # Try to import volume control
 try:
@@ -240,8 +246,16 @@ def send_request(image_path):
         # Step 2: Send to OpenAI API for image description
         try:
             # Create prompt based on wordiness setting
-            prompt = f"You are standing in for someone who is blind and cannot see, \
-            objectively note everything you see in the image. Don't get too poetic, and don't go over {wordiness} words."
+            
+            prompt = f"You are standing in for someone who is blind and cannot see. Your response must NOT mention anything that isn't observed in the image and shouldn't be formatted.\
+            objectively note everything you see in the image (don't get poetic.)\
+            Anything relating to safety should be noted first\
+            If there IS text, try to note what it says.\
+            If there is money, try to note what value it holds.\
+            Don't go over {wordiness} words"
+            
+            #prompt = f"You are standing in for someone who is blind and cannot see, \
+            #objectively note everything you see in the image. Don't get too poetic, and don't go over {wordiness} words."
             
             # Create OpenAI client
             client = openai.OpenAI(api_key=OPENAI_API_KEY)
