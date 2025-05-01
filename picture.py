@@ -8,6 +8,7 @@ import requests
 from PIL import Image
 from datetime import datetime
 from picamera2 import Picamera2
+from picamera2.transforms import Transform
 import time
 import threading
 import subprocess
@@ -30,7 +31,21 @@ openai.api_key = OPENAI_API_KEY
 
 # Camera Object
 picam2 = Picamera2()
-config = picam2.create_still_configuration(main={"size": (480, 270)})
+config = picam2.create_still_configuration(
+    main={"size": (480, 270)},
+    transform=Transform(hflip=0, vflip=0),
+    buffer_count=2,
+    display=None
+)
+# Add advanced controls to reduce banding
+picam2.set_controls({
+    "AwbEnable": True,  # Enable auto white balance
+    "AeEnable": True,   # Enable auto exposure
+    "FrameDurationLimits": (33333, 100000),  # Limit frame duration (helps with banding)
+    "NoiseReductionMode": 2,  # High noise reduction
+    "Saturation": 1.0,  # Normal saturation
+    "Sharpness": 1.0,   # Normal sharpness
+})
 picam2.configure(config)
 picam2.start()
 
