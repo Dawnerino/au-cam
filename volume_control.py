@@ -105,6 +105,9 @@ class VolumeEncoder:
                 # Update last state
                 self.last_encoded = encoded
                 
+                # Short delay for debouncing
+                time.sleep(0.001)
+                
         except Exception as e:
             print(f"Error reading encoder: {e}")
     
@@ -156,8 +159,8 @@ class VolumeEncoder:
             self._read_encoder()
             self._read_button()
             
-            # Small delay to prevent CPU hogging
-            time.sleep(0.01)
+            # Smaller delay to catch fast rotations
+            time.sleep(0.002)
     
     def start(self):
         """Start monitoring the rotary encoder."""
