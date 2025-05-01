@@ -246,13 +246,21 @@ def send_request(image_path):
         # Step 2: Send to OpenAI API for image description
         try:
             # Create prompt based on wordiness setting
-            
+            system_prompt = f"""You are standing in for someone who is blind and cannot see.
+                The image provided is taken on a fish-eye lens, DO NOT MENTION ANY CURVED DISTORTION AT THE EDGES OF THE IMAGE.
+                Your response must NOT mention anything that isn't observed in the image and shouldn't be formatted.
+                Objectively note everything you see in the image (do not be poetic).
+                Anything relating to safety should be noted first. If nothing is a safety issue, DO NOT MENTION IT.
+                If there IS text, try to note what it says. If there is no text, DO NOT MENTION IT IN YOUR RESPONSE.
+                If there is money, try to note what value it holds. If there is not money visible, DO NOT MENTION IT.
+                Don't go over {wordiness} words."""
+
             prompt = f"You are standing in for someone who is blind and cannot see.\
                 Your response must NOT mention anything that isn't observed in the image and shouldn't be formatted.\
                 objectively note everything you see in the image (don't get poetic.)\
-                Anything relating to safety should be noted first\
-                If there IS text, try to note what it says.\
-                If there is money, try to note what value it holds.\
+                Anything relating to safety should be noted first. If nothing is a safety issue, DO NOT MENTION IT IN YOUR RESPONSE.\
+                If there IS text, try to note what it says. If there is no text, DO NOT MENTION IT IN YOUR RESPONSE.\
+                If there is money, try to note what value it holds. If there is not money visable, DO NOT MENTION IT.\
                 Don't go over {wordiness} words"
             #prompt = f"You are standing in for someone who is blind and cannot see, \
             #objectively note everything you see in the image. Don't get too poetic, and don't go over {wordiness} words."
@@ -270,10 +278,11 @@ def send_request(image_path):
                 response = client.chat.completions.create(
                     model="gpt-4o",
                     messages=[
+                        {"role": "system", "content": system_prompt},
                         {
-                            "role": "user", 
+                            "role": "user",
                             "content": [
-                                {"type": "text", "text": prompt},
+                                {"type": "text", "text": "Describe this image."},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
                             ]
                         }
