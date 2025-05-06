@@ -8,15 +8,10 @@ class VolumeEncoder:
     
     def __init__(self, clk_pin=17, dt_pin=23, button_pin=27, min_volume=50, max_volume=100, step=1):
         """
-        Initialize the rotary encoder.
-        
-        Args:
-            clk_pin: GPIO pin for the CLK signal (defaults to GPIO 17)
-            dt_pin: GPIO pin for the DT signal (defaults to GPIO 23)
-            button_pin: GPIO pin for the push button (defaults to GPIO 27)
-            min_volume: Minimum volume level (50-100)
-            max_volume: Maximum volume level (50-100)
-            step: Step size for volume changes (1)
+        Initialize the rotary encoder
+        min_volume: Minimum volume level (50-100)
+        max_volume: Maximum volume level (50-100)
+        step: Step size for volume changes (1)
         """
         # Store pin assignments
         self.clk_pin = clk_pin

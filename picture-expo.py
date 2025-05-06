@@ -160,7 +160,7 @@ def keep_last_10_photos(directory):
 
 def resize_image(image):
     """Resizes image so that the longest side is 150 pixels while maintaining aspect ratio."""
-    max_size = 512
+    max_size = 150
     width, height = image.size
 
     if width > height:
