@@ -34,9 +34,10 @@ picam2 = Picamera2()
 # Automatically select the highest resolution mode
 max_mode = max(picam2.sensor_modes, key=lambda m: m['size'][0] * m['size'][1])
 max_res = max_mode['size']
+print(max_res)
 
 config = picam2.create_still_configuration(
-    main={"size": max_res},
+    main={"size": (480, 270)},
     buffer_count=2,
     display=None
 )
@@ -165,7 +166,7 @@ def keep_last_10_photos(directory):
 
 def resize_image(image):
     """Resizes image so that the longest side is (x) pixels while maintaining aspect ratio."""
-    max_size = 1920
+    max_size = 512
     width, height = image.size
 
     if width > height:
