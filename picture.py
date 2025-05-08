@@ -494,11 +494,11 @@ def handle_playback_navigation(direction):
         audio_manager.play_error_sound()
         return
     
-    # Update the index based on the direction
+    """(BROKEN) Update the index based on the direction (THIS IS INCORRECT BUT TEMPORARILY CHANGED FOR DEMO)"""
     if direction == "NEXT":
-        app_state.current_playback_index = (app_state.current_playback_index + 1) % len(audio_files)
-    elif direction == "PREV":
         app_state.current_playback_index = (app_state.current_playback_index - 1) % len(audio_files)
+    elif direction == "PREV":
+        app_state.current_playback_index = (app_state.current_playback_index + 1) % len(audio_files)
     
     # Play the selected file
     file_to_play = audio_files[app_state.current_playback_index]
