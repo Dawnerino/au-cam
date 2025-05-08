@@ -30,8 +30,13 @@ openai.api_key = OPENAI_API_KEY
 
 # Camera Object
 picam2 = Picamera2()
+
+# Automatically select the highest resolution mode
+max_mode = max(picam2.sensor_modes, key=lambda m: m['size'][0] * m['size'][1])
+max_res = max_mode['size']
+
 config = picam2.create_still_configuration(
-    main={"size": (480, 270)},
+    main={"size": max_res},
     buffer_count=2,
     display=None
 )
@@ -159,7 +164,7 @@ def keep_last_10_photos(directory):
         print(f"Error cleaning up photos: {e}")
 
 def resize_image(image):
-    """Resizes image so that the longest side is 150 pixels while maintaining aspect ratio."""
+    """Resizes image so that the longest side is (x) pixels while maintaining aspect ratio."""
     max_size = 512
     width, height = image.size
 
